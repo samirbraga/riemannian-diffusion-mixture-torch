@@ -52,18 +52,19 @@ def ramachandran_type(residue, next_residue):
 
 
 # pdb_code = "119l"
+files_dir = "pdb_files"
 output_file = open("aggregated_angles.tsv", "w")
 for pdb_code in open('list_file.txt', 'r').read().split(','):
 
-    filename = pdb_code + '.pdb'
-    if not os.path.isfile(pdb_code):
+    filename = files_dir + '/' + pdb_code + '.pdb'
+    if not os.path.isfile(filename):
         gzname = filename + '.gz'
         with gzip.open(gzname, 'rb') as f_in:
             with open(filename, 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
 
     print("About to load Bio.PDB and the PDB file...")
-    structure = Bio.PDB.PDBParser().get_structure(pdb_code, "%s.pdb" % pdb_code)
+    structure = Bio.PDB.PDBParser().get_structure(pdb_code, filename)
     print("Done")
 
     print("About to save angles to file...")
