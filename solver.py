@@ -202,7 +202,7 @@ def get_grw_sampler(sde, N=100,
             stf = tf.detach().cpu() if isinstance(tf, torch.Tensor) else tf
 
             timesteps = np.linspace(t0, stf, N)
-            timesteps = torch.from_numpy(timesteps).to(x.device)
+            timesteps = timesteps.to(x.device)
             dt = (tf - t0) / N
             # -------- GRW --------
             for i in range(0, N-1): # Exclude the final result do to numerical instability for N=100
@@ -252,7 +252,7 @@ def get_twoway_sampler(mix, N=10):
 
             ts = t * t_mask + (1.-t) * ~t_mask
             timesteps = np.linspace(mix.t0, ts.detach().cpu(), N)
-            timesteps = torch.from_numpy(timesteps).to(x.device)
+            timesteps = timesteps.to(x.device)
             dt = (ts - mix.t0) / N
             # -------- GRW --------
             for i in range(0, N):
