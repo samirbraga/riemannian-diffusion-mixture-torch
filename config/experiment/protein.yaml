@@ -1,7 +1,16 @@
+# @package _global_
+
+name: protein
+
 defaults:
+  - /dataset : proline
+  - /manifold: htori
   - /mix     : log
   - /modelf  : mlp
   - /modelb  : mlp
+
+n: 2
+torus_dim: ${n}
 
 modelf:
   out_dim      : ${eval:${torus_dim} * 2}
@@ -11,8 +20,9 @@ modelb:
   out_dim      : ${eval:${torus_dim} * 2}
   act          : swish
 
+batch_size  : 512
 splits      : [0.8, 0.1, 0.1]
-# steps       : 1000000
+steps       : 50000
 ema_rate    : 0.999
 eps         : 1.0e-3
 use_pode    : True
