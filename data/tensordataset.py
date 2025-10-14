@@ -1,7 +1,10 @@
 import numpy as np
 import math
 
-class TensorDataset:
+from torch.utils.data import Dataset
+
+
+class TensorDataset(Dataset):
     def __init__(self, data):
         self.data = data
 
