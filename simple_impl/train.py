@@ -1,5 +1,6 @@
 import logging
 import gc
+import os
 
 import torch
 from tqdm import tqdm
@@ -16,6 +17,11 @@ from sde_lib import DiffusionMixture
 from util.ema import ExponentialMovingAverage
 from util.loggers_pl import CSVLogger
 
+os.environ["GEOMSTATS_BACKEND"] = "pytorch"
+eval('setattr(torch.backends.cudnn, "deterministic", True)')
+eval('setattr(torch.backends.cudnn, "benchmark", False)')
+torch.set_default_dtype(torch.float32)
+
 log = logging.getLogger(__name__)
 logger = CSVLogger('logs', flush_logs_every_n_steps=1000)
 
@@ -24,7 +30,7 @@ steps = 200000
 train_val = True
 val_freq = 1000
 seed = 0
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 eval_batch_size = 8192
 batch_size = 8192
 patience = 20000
@@ -148,12 +154,11 @@ def train(step=0):
     total_train_time = 0
     for _ in tbar:
         batch = next(train_ds)
-        batch = batch.to(device)
 
         optimizerf.zero_grad()
         optimizerb.zero_grad()
 
-        loss, lossf, lossb = loss_fn(modelf, modelb, batch)
+        loss, lossf, lossb = loss_fn(modelf, modelb, batch.to(device))
         loss.backward()
 
         if grad_norm > 0:
