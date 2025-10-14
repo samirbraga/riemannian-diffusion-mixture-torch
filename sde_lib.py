@@ -228,7 +228,7 @@ class ApproxMixture(Mixture):
         drift = self.fdrift_fn(x, t)
         if self.use_pode:
             scaled_score_fn = drift + self.bdrift_fn(x, self.tf-t)
-            drfit = drift - 0.5 * scaled_score_fn
+            drift = drift - 0.5 * scaled_score_fn
         return drift
 
     def coefficients(self, x, t):
