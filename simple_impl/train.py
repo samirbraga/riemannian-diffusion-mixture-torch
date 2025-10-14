@@ -1,4 +1,3 @@
-import os
 import logging
 import gc
 
@@ -19,10 +18,6 @@ from util.loggers_pl import CSVLogger
 
 log = logging.getLogger(__name__)
 logger = CSVLogger('logs', flush_logs_every_n_steps=1000)
-
-ckpt_dir = 'ckpt'
-ckpt_path = os.path.join('../', ckpt_dir)
-os.makedirs(ckpt_path, exist_ok=True)
 
 grad_norm = 1.0
 steps = 200000
