@@ -101,6 +101,9 @@ t = torch.rand(x.shape[0], device=x.device) * (mix.tf - eps) + eps
 # Depois (corrigido)
 timesteps_np = np.linspace(mix.t0, ts.detach().cpu().numpy(), N)
 
-ps: adicionado treinamento com mlflow para tracking de parâmetros em simple_impl/mlflow_train.py
+
 timesteps = torch.from_numpy(timesteps_np).float().to(x.device)
 ```
+
+
+*ps: adicionado treinamento com mlflow para tracking de parâmetros em simple_impl/mlflow_train.py*
