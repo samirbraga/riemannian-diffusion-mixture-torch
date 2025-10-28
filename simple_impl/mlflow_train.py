@@ -6,11 +6,11 @@ from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 from timeit import default_timer as timer
 
-# MLFLOW: 1. Importar a biblioteca mlflow
+
 import mlflow
 import mlflow.pytorch
 
-# MODIFICAÇÃO 1: Importar a nova classe de treino CATHDataset
+
 from data.protein import CATHDataset
 from data.tensordataset import DataLoader
 from likelihood import Likelihood
@@ -117,7 +117,7 @@ def evaluate(stage, step, **kwargs):
         logger.log_metrics({f"{stage}/logp": logp}, step)
         logger.log_metrics({f"{stage}/nfe": nfe}, step)
         
-        # MLFLOW: 4. Registrar as métricas de validação
+        
         mlflow.log_metric(f"{stage}_logp", logp.item(), step=step)
         mlflow.log_metric(f"{stage}_nfe", nfe, step=step)
 
@@ -170,7 +170,7 @@ def train(step=0):
             logger.log_metrics({"train/loss_b": lossb_val}, step)
             logger.log_metrics({"train/loss_total": loss_val}, step)
 
-            # MLFLOW: 5. Registrar as métricas de treino (losses)
+           
             mlflow.log_metric("train_loss_total", loss_val, step=step)
             mlflow.log_metric("train_loss_f", lossf_val, step=step)
             mlflow.log_metric("train_loss_b", lossb_val, step=step)
