@@ -118,3 +118,8 @@ Modificado:
 
 timesteps_np = np.linspace(mix.t0, ts.detach().cpu().numpy(), N)
 timesteps = torch.from_numpy(timesteps_np).float().to(x.device)
+
+
+
+# Novo treinamento com UI do MLFLOW:
+1. **simple_impl/mlflow_train.py** (Novo Arquivo)
