@@ -1,0 +1,14 @@
+tqdm
+numpy
+matplotlib
+fsspec[http]>=2021.05.0, !=2021.06.0
+joblib
+hydra-core>=1.3.0
+hydra-colorlog>=1.2.0
+hydra-joblib-launcher>=1.2.0
+torchdiffeq
+seaborn
+plotly
+cartopy
+libigl
+pyvista
