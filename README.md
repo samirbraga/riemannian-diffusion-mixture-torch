@@ -5,7 +5,7 @@ Siga os passos abaixo para configurar o ambiente e replicar o treinamento.
 Clone o repositório e instale todas as bibliotecas Python necessárias a partir do arquivo requirements.txt.
 
 ```bash
-git clone <URL_DO_SEU_REPOSITORIO>
+git clone <ESTE_REPO>
 cd <NOME_DO_DIRETORIO>
 pip install -r requirements.txt
 ```
@@ -14,9 +14,10 @@ pip install -r requirements.txt
 Faça o download do dataset no link acima e organize os arquivos.
 
 **Instruções:**
-1. Descompacte o arquivo cath-dataset-nonredundant-S40.pdb.tgz.  
-2. Crie um diretório chamado dompdb na raiz do projeto.  
-3. Mova todos os arquivos .pdb descompactados para dentro da pasta dompdb.
+1. Descompacte o arquivo cath-dataset-nonredundant-S40.pdb.tgz.
+2. *link: https://www.dropbox.com/scl/fi/xtwvegzml5ts2u9epz6z0/cath-dataset-nonredundant-S40.pdb.tgz?rlkey=5qnpdtybizyuh7pcxe5g8tpkj&e=4&dl=0*
+3. Crie um diretório chamado dompdb na raiz do projeto.  
+4. Mova todos os arquivos .pdb descompactados para dentro da pasta dompdb.
 
 #### 3. Execute o Pré-processamento
 Rode o script para converter os arquivos PDB em um formato de ângulos de torção, que o modelo pode utilizar.
