@@ -13,7 +13,7 @@ PDB_DIRECTORY = "./dompdb"
 OUTPUT_FILE = "./data/cath_s40_L64.tsv"
 
 
-WINDOW_SIZE = 50
+WINDOW_SIZE = 20
 
 
 #INÍCIO DO SCRIPT 

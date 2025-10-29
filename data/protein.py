@@ -71,11 +71,13 @@ class RNA(TensorDataset):
         super().__init__(self.data)
 
 
-  #CLASSE ADICIONADA 
+# protein.py (versão 2.0 com CATHDataset)
+
 class CATHDataset(torch.utils.data.Dataset):
     """
     Classe Dataset personalizada para carregar os dados pré-processados do CATH.
-    Lê o arquivo .tsv gerado pelo preprocess_cath.py e o prepara para o PyTorch.
+    Lê o arquivo .tsv gerado e o prepara para o PyTorch, construindo corretamente
+    os pontos na variedade Torus.
     """
     def __init__(self, tsv_path, window_size):
         
@@ -85,8 +87,7 @@ class CATHDataset(torch.utils.data.Dataset):
         num_angles_per_residue = 2
         self.torus_dim = window_size * num_angles_per_residue
         
-        # Define a geometria do espaço de dados como um Torus n-dimensional,
-        # onde n é a dimensão calculada acima.
+        #
         self.manifold = Torus(dim=self.torus_dim)
         
         print(f"Dataset CATH carregado com {len(self.data)} amostras.")
@@ -98,9 +99,21 @@ class CATHDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
        
+        # 'angles' é um vetor achatado de n ângulos (φ1, ψ1, φ2, ψ2, ...)
         angles = torch.from_numpy(self.data[idx])
         
+        # correção/tentativa de correção
         
-        cos_sin_angles = torch.cat((torch.cos(angles), torch.sin(angles)), dim=-1)
+       
+        sin_angles = torch.sin(angles)
+        cos_angles = torch.cos(angles) 
         
-        return cos_sin_angles
+        
+        coords = torch.stack([cos_angles, sin_angles], dim=1)
+        
+        
+        point_on_torus = coords.flatten()
+
+       
+        
+        return point_on_torus
