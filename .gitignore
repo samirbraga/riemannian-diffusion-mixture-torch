@@ -1,4 +1,4 @@
-# 
+#
 *.pyc
 *.npz
 *.pkl
@@ -144,3 +144,5 @@ dmypy.json
 # Pyre type checker
 .pyre/
 .idea
+
+dompdb/
