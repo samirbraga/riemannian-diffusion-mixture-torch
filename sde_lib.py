@@ -18,7 +18,7 @@ class Mixture(abc.ABC):
         self.kwargs = kwargs
 
     def time_scale(self, t):
-        # <<< FIX IMPLEMENTED HERE >>>
+        # fix below:  
         # Removed dependency on the non-existent 'rescale_t_delta' function.
         # This calculates the scale based on time remaining. Add epsilon for stability.
         scale = self.tf - t + 1e-8
