@@ -50,8 +50,8 @@ class EulerMaruyamaTwoWayPredictor:
         
         tangent_vector = drift * dt_reshaped
         
-        # <<< FIX 2: THE MEMORY ALLOCATION FIX FOR THE BACKWARD PASS >>>
-        # Break down the operation to prevent massive intermediate tensors.
+        #  MEMORY ALLOCATION FIX FOR THE BACKWARD PASS
+        # Break down the operation to prevent memory overflow
         dt_sqrt = torch.sqrt(torch.abs(dt_reshaped))
         combined_diffusion = diffusion.view(-1, 1, 1) * dt_sqrt
         tangent_vector += combined_diffusion * z
