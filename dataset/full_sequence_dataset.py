@@ -1,4 +1,3 @@
-# FILE: dataset/full_sequence_dataset.py (Correct and Final Version)
 
 import os
 import torch
@@ -84,19 +83,17 @@ class CATHFullSequenceDataset(Dataset):
 
     def __getitem__(self, idx):
         entry = np.load(self.files[idx], allow_pickle=True).item()
-        # Step 1: Stack the raw angles (in radians)
+        
         seq = np.stack([entry[a] for a in self.angles], axis=-1)
         
-        # <<< CRITICAL FIX: The Problem is Here >>>
         # The raw angle data in 'seq' contains NaN values.
-        # We must clean them BEFORE converting to cos/sin.
+        
         seq = np.nan_to_num(seq, nan=0.0)
         
-        # Step 2: Convert the cleaned angles to the (cos, sin) representation for the model
+         #Convert the cleaned angles to the (cos, sin) representation for the model
         cos_sin = np.concatenate([np.cos(seq), np.sin(seq)], axis=-1)
         
-        # Step 3: Pad or truncate the sequence to the required length
-        L = len(cos_sin)
+        
         pad = self.max_len - L
         if pad > 0:
             padded = np.pad(cos_sin, ((0,pad),(0,0)), constant_values=0.0)
