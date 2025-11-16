@@ -2,7 +2,7 @@ import math
 import torch
 from torch import nn
 
-
+# comment to re-commit what was not commited before (error)
 class GaussianFourierProjection(nn.Module):
     """
     Gaussian Fourier features for time embedding.

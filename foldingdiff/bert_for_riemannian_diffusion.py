@@ -10,6 +10,7 @@ class BertForRiemannianDiffusion(nn.Module):
     A Transformer-based Score Network for Riemannian Diffusion
     that predicts tangent vectors on a manifold. I hope I implemented it ok ASAP :-D "
     """
+    # comment to re-commit what was not commited before (error)
 
     def __init__(
         self,
@@ -105,3 +106,5 @@ class BertForRiemannianDiffusion(nn.Module):
         out_tangent = self.manifold.to_tangent(out_euc, x)
 
         return out_tangent
+
+        
