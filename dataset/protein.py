@@ -73,47 +73,48 @@ class RNA(TensorDataset):
 
 # protein.py (versão 2.0 com CATHDataset)
 
-class CATHDataset(torch.utils.data.Dataset):
+ #protein.py (substitua a classe CATHDataset por esta versão)
+
+class CATHDataset(TensorDataset):
     """
-    Classe Dataset personalizada para carregar os dados pré-processados do CATH.
-    Lê o arquivo .tsv gerado e o prepara para o PyTorch, construindo corretamente
-    os pontos na variedade Torus.
+    Classe Dataset para o CATH, refatorada para seguir o padrão das classes
+    Top500 e RNA. Todo o pré-processamento é feito uma vez no __init__
+    para máxima eficiência e robustez.
     """
     def __init__(self, tsv_path, window_size):
         
-        self.data = pd.read_csv(tsv_path, sep='\t', header=None).values.astype(np.float32)
-        
-        
+        # 1. Movendo toda a lógica para __init__
+        # A dimensão do toro é um hiperparâmetro definido pela 'window_size'
         num_angles_per_residue = 2
         self.torus_dim = window_size * num_angles_per_residue
-        
-        #
         self.manifold = Torus(dim=self.torus_dim)
-        
-        print(f"Dataset CATH carregado com {len(self.data)} amostras.")
-        print(f"Dimensão do Torus (manifold): {self.torus_dim}")
 
-    def __len__(self):
-        
-        return len(self.data)
+        # 2. Carrega todos os ângulos do arquivo para um tensor PyTorch
+        print(f"Lendo dados de {tsv_path}...")
+        all_angles = pd.read_csv(tsv_path, sep='\t', header=None).values.astype(np.float32)
+        angles_tensor = torch.from_numpy(all_angles)
 
-    def __getitem__(self, idx):
-       
-        # 'angles' é um vetor achatado de n ângulos (φ1, ψ1, φ2, ψ2, ...)
-        angles = torch.from_numpy(self.data[idx])
-        
-        # correção/tentativa de correção
-        
-       
-        sin_angles = torch.sin(angles)
-        cos_angles = torch.cos(angles) 
-        
-        
-        coords = torch.stack([cos_angles, sin_angles], dim=1)
-        
-        
-        point_on_torus = coords.flatten()
+        print(f"Processando {len(angles_tensor)} amostras para um Torus de dimensão {self.torus_dim}...")
 
-       
+        # 3. A Conversão Vetorizada (A forma mais eficiente e "PyTorch-ic")
+        # Esta operação é feita UMA VEZ para o dataset inteiro.
+        # 'angles_tensor' tem shape [num_amostras, torus_dim]
         
-        return point_on_torus
+        # Calcula todos os cossenos e senos de uma vez
+        cos_angles = torch.cos(angles_tensor) # Shape: [N, torus_dim]
+        sin_angles = torch.sin(angles_tensor) # Shape: [N, torus_dim]
+
+        # Empilha para criar pares [cos, sin] para cada ângulo.
+        # A dim=2 cria um shape [N, torus_dim, 2]
+        coords = torch.stack([cos_angles, sin_angles], dim=2)
+
+        # Achata a partir da dimensão 1 para obter a ordem intercalada correta.
+        # [N, torus_dim, 2] -> [N, torus_dim * 2]
+        # Resultando em [cos(a1), sin(a1), cos(a2), sin(a2), ...] para cada amostra.
+        final_data = coords.flatten(start_dim=1)
+
+        # 4. Chama o construtor da classe pai (TensorDataset) com os dados finais
+        # self.data é criado automaticamente aqui.
+        super().__init__(final_data)
+        
+        print(f"Dataset CATH carregado com sucesso. Tensor final com shape: {self.data.shape}")
