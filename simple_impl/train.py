@@ -14,7 +14,7 @@ from losses import get_mix_loss_fn
 from util.ema import ExponentialMovingAverage
 
 
-# This will stop the script and show you the exact operation that created a NaN:
+# This will stop the script and show you the exact operation that created a nan (it was a huge problem)
 torch.autograd.set_detect_anomaly(True)
 
 
@@ -23,7 +23,7 @@ BATCH_SIZE = 2
 NUM_EPOCHS = 5000
 GRAD_CLIP_NORM = 1.0
 
-# Model & Data Configuration
+# Model and Data Configuration
 #ps: we may need to change that a lot, Samir 
 MAX_LEN = 128
 BERT_HIDDEN_SIZE = 256
