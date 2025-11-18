@@ -1,11 +1,11 @@
-import logging
 import gc
+import logging
 import os
+from timeit import default_timer as timer
 
 import torch
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
-from timeit import default_timer as timer
 
 import data.protein
 from data.tensordataset import DataLoader
@@ -23,7 +23,7 @@ eval('setattr(torch.backends.cudnn, "benchmark", False)')
 torch.set_default_dtype(torch.float32)
 
 log = logging.getLogger(__name__)
-logger = CSVLogger('logs', flush_logs_every_n_steps=1000)
+logger = CSVLogger("logs", flush_logs_every_n_steps=1000)
 
 grad_norm = 1.0
 steps = 200000
@@ -41,7 +41,7 @@ out_dim = torus_dim * 2
 hid_dim = 512
 num_layers = 6
 
-dataset = data.protein.RNA("../data/rna")
+dataset = data.protein.RNA("./data/rna")
 N = len(dataset)
 N_val = N_test = N // 10
 N_train = N - N_val - N_test
@@ -62,22 +62,22 @@ manifold = dataset.manifold
 mix = DiffusionMixture(
     manifold,
     beta_schedule,
-    mix_type='log',
+    mix_type="log",
     drift_scale=1.0,
     pred=False,
     pred_scale=1.0,
-    prior_type='unif'
+    prior_type="unif",
 )
-loss_fn = get_mix_loss_fn(mix, num_steps=15, eps=0.001, weight_type='default')
+loss_fn = get_mix_loss_fn(mix, num_steps=15, eps=0.001, weight_type="default")
 likelihood = Likelihood(mix, rtol=1e-5, atol=1e-5)
 
 model_params = dict(
     num_layers=num_layers,
     hid_dim=hid_dim,
-    act='swish',
+    act="swish",
     in_dim=out_dim + 1,
     out_dim=out_dim,
-    manifold=manifold
+    manifold=manifold,
 )
 modelf = ScoreNetwork(**model_params).to(device)
 modelb = ScoreNetwork(**model_params).to(device)
@@ -85,8 +85,12 @@ modelb = ScoreNetwork(**model_params).to(device)
 emaf = ExponentialMovingAverage(parameters=modelf.parameters(), decay=0.9999)
 emab = ExponentialMovingAverage(parameters=modelb.parameters(), decay=0.9999)
 
-optimizerf = torch.optim.Adam(modelf.parameters(), lr=0.0002, weight_decay=0.0, betas=(0.9, 0.999), eps=1e-8)
-optimizerb = torch.optim.Adam(modelb.parameters(), lr=0.0002, weight_decay=0.0, betas=(0.9, 0.999), eps=1e-8)
+optimizerf = torch.optim.Adam(
+    modelf.parameters(), lr=0.0002, weight_decay=0.0, betas=(0.9, 0.999), eps=1e-8
+)
+optimizerb = torch.optim.Adam(
+    modelb.parameters(), lr=0.0002, weight_decay=0.0, betas=(0.9, 0.999), eps=1e-8
+)
 
 schedulerf = torch.optim.lr_scheduler.CosineAnnealingLR(optimizerf, T_max=steps)
 schedulerb = torch.optim.lr_scheduler.CosineAnnealingLR(optimizerb, T_max=steps)
@@ -131,10 +135,14 @@ def evaluate(stage, step, **kwargs):
 
         with logging_redirect_tqdm():
             if stage == "test" and best_val:
-                log.info(f">>> [Epoch {step:06d}] | Val logp={kwargs['best_logp']:.3f} | "
-                         f"Test logp={logp:.3f} | nfe: {nfe:.1f}")
+                log.info(
+                    f">>> [Epoch {step:06d}] | Val logp={kwargs['best_logp']:.3f} | "
+                    f"Test logp={logp:.3f} | nfe: {nfe:.1f}"
+                )
             else:
-                log.info(f"[Epoch {step:06d}] {stage} logp: {logp:.3f} | nfe: {nfe:.1f}")
+                log.info(
+                    f"[Epoch {step:06d}] {stage} logp: {logp:.3f} | nfe: {nfe:.1f}"
+                )
         logger.save()
 
         return logp
@@ -205,6 +213,7 @@ def train(step=0):
 
     logger.log_metrics({"train/total_time": total_train_time}, step)
     return True
+
 
 if __name__ == "__main__":
     success = train(step=0)

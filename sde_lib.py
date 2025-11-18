@@ -1,11 +1,11 @@
 import abc
 import numpy as np
 import torch
-
+from geomstats.geometry.manifold import Manifold
 from distribution import UniformDistribution, Wrapped
 
 class Mixture(abc.ABC):
-    def __init__(self, manifold, beta_schedule, prior_type='unif', **kwargs):
+    def __init__(self, manifold: Manifold, beta_schedule, prior_type='unif', **kwargs):
         """Base Mixture"""
         super().__init__()
         self.manifold = manifold

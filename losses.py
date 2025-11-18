@@ -1,8 +1,9 @@
 import torch
 import numpy as np
+from sde_lib import DiffusionMixture
 from solver import get_twoway_sampler
 
-def get_mix_loss_fn(mix, reduce_mean=False, eps=1e-5, num_steps=10, 
+def get_mix_loss_fn(mix: DiffusionMixture, reduce_mean=False, eps=1e-5, num_steps=10, 
                     weight_type='default', sampler_type='twoway'):
     reduce_op = torch.mean if reduce_mean else \
                 lambda *args, **kwargs: torch.sum(*args, **kwargs)
