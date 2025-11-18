@@ -1,12 +1,11 @@
-# FILE: losses.py (Full replacement)
-
 import torch
 import numpy as np
+from sde_lib import DiffusionMixture
 from solver import get_twoway_sampler
 
-def get_mix_loss_fn(mix, reduce_mean=False, eps=1e-5, num_steps=10,
-                    weight_type='default', sampler_type='twoway',
-                    loss_type='smooth_l1', beta=0.1): # <-- Note the new arguments
+def get_mix_loss_fn(mix: DiffusionMixture, reduce_mean=False, eps=1e-5, num_steps=10, 
+                    weight_type='default', sampler_type='twoway', loss_type='smooth_l1', beta=0.1):
+
     reduce_op = torch.mean if reduce_mean else \
                 lambda *args, **kwargs: torch.sum(*args, **kwargs)
     sampler = get_twoway_sampler(mix, num_steps)
@@ -114,6 +113,7 @@ def get_loss_step_fn(loss_fn, clip_grad_norm=1.0, lr_sched=False):
             schedulerf.step()
             schedulerb.step()
 
+        # -------- EMA update --------
         emaf.update(modelf.parameters())
         emab.update(modelb.parameters())
 

@@ -1,13 +1,11 @@
-# sde_lib.py (Final  Version)
-
 import abc
 import numpy as np
 import torch
-
+from geomstats.geometry.manifold import Manifold
 from distribution import UniformDistribution, Wrapped
 
 class Mixture(abc.ABC):
-    def __init__(self, manifold, beta_schedule, prior_type='unif', **kwargs):
+    def __init__(self, manifold: Manifold, beta_schedule, prior_type='unif', **kwargs):
         """Base Mixture"""
         super().__init__()
         self.manifold = manifold
@@ -22,6 +20,7 @@ class Mixture(abc.ABC):
         # Removed dependency on the non-existent 'rescale_t_delta' function.
         # This calculates the scale based on time remaining. Add epsilon for stability.
         scale = self.tf - t + 1e-8
+        # scale = self.beta_schedule.rescale_t_delta(t, self.tf)
         return self.beta_schedule.beta_t(t) / scale
 
     def diffusion(self, x, t):
@@ -100,6 +99,7 @@ class DiffusionMixture(Mixture):
                 drift = self.manifold.log(drift, x)
                 drift = self.manifold.to_tangent(drift, x)
                 drift = drift * scale.view(-1, 1, 1)
+                # drift = torch.einsum("...i,...->...i", drift, scale)
             return drift
         return drift_fn
 
@@ -131,11 +131,13 @@ class Bridge(abc.ABC):
     def time_scale(self, t):
         #fixed here
         scale = self.tf - t + 1e-8
+        # scale = self.beta_schedule.rescale_t_delta(t, self.tf)
         return self.beta_schedule.beta_t(t) / scale
     
     def drift(self, x, t):
         drift = self.drift_before_scale(x, t)
         coeff = self.time_scale(t) * self.drift_scale
+        # return torch.einsum("...i,...->...i", drift, coeff)
         return drift * coeff.view(-1, 1, 1)
 
     def diffusion(self, x, t):
@@ -155,6 +157,7 @@ class Bridge(abc.ABC):
 class BrownianBridge(Bridge):
     def __init__(self, manifold, beta_schedule, dest, drift_scale, **kwargs):
         super().__init__(manifold, beta_schedule, dest, drift_scale)
+
     def drift_before_scale(self, x, t):
         return self.manifold.log(point=self.dest, base_point=x)
 
