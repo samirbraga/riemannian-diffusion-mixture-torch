@@ -99,7 +99,7 @@ class BertForDiffusionBase(BertPreTrainedModel):
 
         self.time_embed = GaussianFourierProjection(config.hidden_size)
 
-        pl.utilities.rank_zero_info(f"Using time embedding: {self.time_embed}")
+        # pl.utilities.rank_zero_info(f"Using time embedding: {self.time_embed}")
 
         # Initialize weights and apply final processing
         self.init_weights()

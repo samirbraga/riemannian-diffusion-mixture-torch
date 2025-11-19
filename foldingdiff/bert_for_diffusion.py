@@ -30,7 +30,7 @@ class BertForDiffusion(BertForDiffusionBase, pl.LightningModule):
             radian_smooth_l1_loss, beta=torch.pi / 10
         )
 
-        pl.utilities.rank_zero_info(f"Using loss: {self.loss_func}")
+        # pl.utilities.rank_zero_info(f"Using loss: {self.loss_func}")
         if isinstance(self.loss_func, (tuple, list)):
             assert (
                 len(self.loss_func) == self.n_inputs

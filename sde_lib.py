@@ -95,7 +95,7 @@ class DiffusionMixture(Mixture):
             model.eval()
 
         def drift_fn(x, t, attention_mask, position_ids):
-            drift = model(x, t.unsqueeze(-1), attention_mask, position_ids)
+            drift = model(x, t.unsqueeze(-1), attention_mask, position_ids).reshape(x.shape)
             if self.pred:
                 scale = self.drift_scale * self.time_scale(t) / self.pred_scale
                 drift = self.manifold.log(drift, x)

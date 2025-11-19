@@ -19,6 +19,7 @@ LEARNING_RATE = 2e-5
 max_seq_len = 128
 min_seq_len = 40
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cpu")
 steps = 200000
 grad_norm = 1.0
 lr_sched = False
@@ -58,16 +59,18 @@ train_dataloader = DataLoader(
 )
 val_dataloader = DataLoader(dataset=val_noised_dataset, **dl_args)
 
+angles_per_residue = len(train_dataset.feature_names["angles"])  # 6 right now
 cfg = BertConfig(
-    max_position_embeddings=max_seq_len,
-    num_attention_heads=12,
-    hidden_size=384,
-    intermediate_size=768,
-    num_hidden_layers=12,
+    max_position_embeddings=max_seq_len * angles_per_residue,
+    num_attention_heads=6,
+    hidden_size=192,
+    intermediate_size=384,
+    num_hidden_layers=6,
     position_embedding_type="relative_key",
     hidden_dropout_prob=0.1,
     attention_probs_dropout_prob=0.1,
     use_cache=False,
+    _attn_implementation="eager"
 )
 
 modelf = BertForDiffusion(
