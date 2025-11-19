@@ -145,7 +145,7 @@ class CathCanonicalAnglesDataset(Dataset):
             logging.info(f"Loading cached full dataset from {self.cache_fname}")
             with open(self.cache_fname, "rb") as source:
                 loaded_hash, loaded_structures = pickle.load(source)
-                codebase_matches_hash = loaded_hash == codebase_hash
+                codebase_matches_hash = True # loaded_hash == codebase_hash
                 if not codebase_matches_hash:
                     logging.warning(
                         "Mismatched hashes between codebase and cached values; updating cached values"
@@ -547,6 +547,9 @@ class CathCanonicalAnglesOnlyDataset(CathCanonicalAnglesDataset):
         # Remove the distance feature
         assert return_dict["angles"].ndim == 2
         return_dict["angles"] = return_dict["angles"][:, self.feature_idx]
+        angles = return_dict["angles"]
+        return_dict["cossin"] = torch.stack([torch.sin(angles), torch.cos(angles)], dim=-1).reshape(-1)
+
         assert torch.all(
             return_dict["angles"] >= -torch.pi
         ), f"Minimum value {torch.min(return_dict['angles'])} lower than -pi"

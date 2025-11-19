@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "biopython>=1.85",
+    "biotite>=1.5.0",
     "cartopy>=0.25.0",
     "fsspec[http]>=2021.5.0,!=2021.6.0",
     "hydra-colorlog>=1.2.0",
@@ -17,6 +18,7 @@ dependencies = [
     "mlflow>=3.6.0",
     "numpy>=2.3.3",
     "plotly>=6.3.1",
+    "pytorch-lightning>=2.5.6",
     "pyvista>=0.46.3",
     "seaborn>=0.13.2",
     "torchdiffeq>=0.2.5",

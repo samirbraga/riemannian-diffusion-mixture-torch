@@ -150,6 +150,7 @@ dmypy.json
 dompdb/
 
 data/dompdb
+data/cath
 data/angles
 
 source_code.tar.gz

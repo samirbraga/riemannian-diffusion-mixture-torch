@@ -1,3 +1,9 @@
+"""
+Some custom metrics
+"""
+import functools
+import multiprocessing
+import logging
 
 import numpy as np
 from scipy import stats
@@ -21,13 +27,7 @@ def kl_from_empirical(
     bins = np.linspace(min_val, max_val, nbins + 1)
     if pseudocount:
         u = np.concatenate((u, bins))
-        v = np.concatenate((v,"""
-Some custom metrics
-"""
-import functools
-import multiprocessing
-import logging
- bins))
+        v = np.concatenate((v, bins))
     u_hist, _u_bin_edges = np.histogram(u, bins=bins, density=True)
     v_hist, _v_bin_edges = np.histogram(v, bins=bins, density=True)
 
