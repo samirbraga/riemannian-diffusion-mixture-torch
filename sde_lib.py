@@ -16,11 +16,7 @@ class Mixture(abc.ABC):
         self.kwargs = kwargs
 
     def time_scale(self, t):
-        # fix below:  
-        # Removed dependency on the non-existent 'rescale_t_delta' function.
-        # This calculates the scale based on time remaining. Add epsilon for stability.
-        scale = self.tf - t + 1e-8
-        # scale = self.beta_schedule.rescale_t_delta(t, self.tf)
+        scale = self.beta_schedule.rescale_t_delta(t, self.tf)
         return self.beta_schedule.beta_t(t) / scale
 
     def diffusion(self, x, t):
@@ -38,6 +34,8 @@ class Mixture(abc.ABC):
             }
             return Wrapped(**pparams, manifold=self.manifold)
         elif self.prior_type == 'data':
+            #NOTE: should be the actual data distribution,
+            # but do not need to be implemented
             return None
         elif self.prior_type == 'test':
             return self.kwargs['prior']
@@ -45,6 +43,7 @@ class Mixture(abc.ABC):
             return None
 
     def importance_cum_weight(self, t, eps):
+        #NOTE: Should use linear beta schedule
         if self.beta_schedule._beta == 0:
             return t / self.beta_schedule.beta_0
         else:
@@ -66,6 +65,7 @@ class Mixture(abc.ABC):
             value = self.importance_cum_weight(mid, eps=eps)
             lb = torch.where(value <= quantile, mid, lb)
             ub = torch.where(value <= quantile, ub, mid)
+
         return (lb + ub) / 2.
 
 
@@ -73,6 +73,7 @@ class DiffusionMixture(Mixture):
     def __init__(self, manifold, beta_schedule, prior_type='unif', 
                 pred=False, pred_scale=1.0,
                 drift_scale=1.0, mix_type='log', **kwargs):
+        """Diffusion Mixture"""
         super().__init__(manifold, beta_schedule, prior_type, **kwargs)
         self.pred = pred
         self.pred_scale = pred_scale
@@ -92,14 +93,14 @@ class DiffusionMixture(Mixture):
     def get_drift_fn(self, model, train=False):
         if not train:
             model.eval()
-        def drift_fn(x, t):
-            drift = model(x, t.unsqueeze(-1))
+
+        def drift_fn(x, t, attention_mask, position_ids):
+            drift = model(x, t.unsqueeze(-1), attention_mask, position_ids)
             if self.pred:
                 scale = self.drift_scale * self.time_scale(t) / self.pred_scale
                 drift = self.manifold.log(drift, x)
                 drift = self.manifold.to_tangent(drift, x)
-                drift = drift * scale.view(-1, 1, 1)
-                # drift = torch.einsum("...i,...->...i", drift, scale)
+                drift = torch.einsum("...i,...->...i", drift, scale)
             return drift
         return drift_fn
 
@@ -109,6 +110,7 @@ class DiffusionMixture(Mixture):
         return BackwardProbabilityFlowODE(self.manifold, driftf, driftb, self.t0, self.tf)
 
     def rev(self):
+        # prior of the reverse should be the data distribution
         return DiffusionMixture(self.manifold, self.beta_schedule.reverse(), 
                                 prior_type='data', pred=self.pred, 
                                 pred_scale=self.pred_scale, drift_scale=self.drift_scale, 
@@ -129,21 +131,17 @@ class Bridge(abc.ABC):
         self.drift_scale = drift_scale
 
     def time_scale(self, t):
-        #fixed here
-        scale = self.tf - t + 1e-8
-        # scale = self.beta_schedule.rescale_t_delta(t, self.tf)
+        scale = self.beta_schedule.rescale_t_delta(t, self.tf)
         return self.beta_schedule.beta_t(t) / scale
     
+    # Time-scaled drift
     def drift(self, x, t):
         drift = self.drift_before_scale(x, t)
         coeff = self.time_scale(t) * self.drift_scale
-        # return torch.einsum("...i,...->...i", drift, coeff)
-        return drift * coeff.view(-1, 1, 1)
+        return torch.einsum("...i,...->...i", drift, coeff)
 
     def diffusion(self, x, t):
         beta_t = self.beta_schedule.beta_t(t)
-        if beta_t.ndim > 1 and beta_t.shape[0] == beta_t.shape[1]:
-            beta_t = torch.diag(beta_t)
         return torch.sqrt(beta_t)
 
     def coefficients(self, x, t):
@@ -161,7 +159,7 @@ class BrownianBridge(Bridge):
     def drift_before_scale(self, x, t):
         return self.manifold.log(point=self.dest, base_point=x)
 
-# ... (Rest of the file is unchanged)
+
 class SpectralBridge(Bridge):
     def __init__(self, manifold, beta_schedule, dest, drift_scale, **kwargs):
         super().__init__(manifold, beta_schedule, dest, drift_scale)
@@ -189,9 +187,13 @@ class SpectralBridge(Bridge):
         dist, vjp_fn = torch.func.vjp(lambda y: self.dist(y), x) 
         grad = vjp_fn(torch.ones_like(dist))[0]
         sqnorm = self.manifold.metric.squared_norm(grad, x).clip(min=1e-20)
+        
+        # Determine the sign and scale
         drift = -2 * torch.einsum('...i,...->...i', grad, dist/sqnorm) 
         return drift
 
+
+# Data -> Prior
 class BackwardProbabilityFlowODE:
     def __init__(self, manifold, driftf, driftb, t0, tf):
         self.manifold = manifold
@@ -207,9 +209,11 @@ class BackwardProbabilityFlowODE:
         ode_drift = bdrift - 0.5 * scaled_score_fn
         return ode_drift, torch.zeros_like(t)
 
+
 class ApproxMixture(Mixture):
     def __init__(self, manifold, beta_schedule, prior_type='unif', 
                     fdrift_fn=None, bdrift_fn=None, use_pode=False, **kwargs):
+        """Approximated Diffusion Mixture"""
         super().__init__(manifold, beta_schedule, prior_type, **kwargs)
         self.approx = True
         self.fdrift_fn = fdrift_fn

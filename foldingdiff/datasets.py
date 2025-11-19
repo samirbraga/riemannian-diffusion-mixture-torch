@@ -404,8 +404,9 @@ class CathCanonicalAnglesDataset(Dataset):
         np.nan_to_num(angles, copy=False, nan=0)
 
         # Create attention mask. 0 indicates masked
-        l = min(self.pad, angles.shape[0])
-        attn_mask = torch.zeros(size=(self.pad,))
+        n_angles = len(self.feature_names["angles"])
+        l = min(self.pad * n_angles, angles.shape[0] * n_angles)
+        attn_mask = torch.zeros(size=(self.pad * n_angles,))
         attn_mask[:l] = 1.0
 
         # Additionally, mask out positions that are nan
@@ -442,7 +443,7 @@ class CathCanonicalAnglesDataset(Dataset):
                 raise ValueError(f"Unknown trim strategy: {self.trim_strategy}")
 
         # Create position IDs
-        position_ids = torch.arange(start=0, end=self.pad, step=1, dtype=torch.long)
+        position_ids = torch.arange(start=0, end=self.pad * n_angles, step=1, dtype=torch.long)
 
         angular_idx = np.where(CathCanonicalAnglesDataset.feature_is_angular["angles"])[
             0

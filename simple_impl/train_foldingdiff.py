@@ -47,7 +47,7 @@ train_noised_dataset = NoisedAnglesDataset(dset=train_dataset, **noised_ds_args)
 val_noised_dataset = NoisedAnglesDataset(dset=val_dataset, **noised_ds_args)
 
 dl_args = dict(
-    batch_size=64,
+    batch_size=16,
     shuffle=False,
     num_workers=4,
     pin_memory=True,
@@ -124,12 +124,15 @@ def train(step=0):
 
     for _ in tbar:
         batch = next(train_dataloader_iter)
-        data = batch['cossin']
+
+        data = batch['cossin'].to(device)
+        attention_mask = batch['attn_mask'].to(device)
+        position_ids = batch['position_ids'].to(device)
 
         optimizerf.zero_grad()
         optimizerb.zero_grad()
 
-        loss, lossf, lossb = loss_fn(modelf, modelb, data.to(device))
+        loss, lossf, lossb = loss_fn(modelf, modelb, data, attention_mask, position_ids)
         loss.backward()
 
         if grad_norm > 0:

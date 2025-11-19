@@ -237,7 +237,6 @@ class EulerMaruyamaTwoWayPredictor:
         tangent_vector = torch.einsum("...,...i,...->...i", diffusion, z, dt.abs().sqrt())
         tangent_vector = tangent_vector + torch.einsum("...i,...->...i", drift, dt)
         x = self.manifold.exp(tangent_vec=tangent_vector, base_point=x)
-        print(x.shape)
         return x, x
 
 

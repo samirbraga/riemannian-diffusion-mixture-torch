@@ -9,7 +9,7 @@ class ScoreNetwork(torch.nn.Module):
         self.layer = MLP(num_layers, in_dim, hid_dim, out_dim, act)
         self.manifold = manifold
 
-    def forward(self, x, t):
+    def forward(self, x, t, attention_mask, position_ids):
         if len(t.shape) == len(x.shape)-1:
             t = t.unsqueeze(-1)
         output = self.layer(torch.cat([x, t], dim=-1))

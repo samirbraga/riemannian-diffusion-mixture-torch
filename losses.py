@@ -21,10 +21,10 @@ def get_mix_loss_fn(mix: DiffusionMixture, reduce_mean=False, eps=1e-5, num_step
             raise NotImplementedError(f'{weight_type} not implemented.')
         return weight
 
-    def loss_fn(modelf, modelb, x):
+    def loss_fn(modelf, modelb, x, attention_mask = None, position_ids = None):
         shape = x.shape
         # Forward (prior->data) drift
-        predf_fn = mix.get_drift_fn(modelf, train=True)
+        predf_fn = mix.get_drift_fn(modelf, train=True,)
         # Backward (data->prior) drift
         predb_fn = mix.get_drift_fn(modelb, train=True)
 
@@ -43,13 +43,13 @@ def get_mix_loss_fn(mix: DiffusionMixture, reduce_mean=False, eps=1e-5, num_step
         weight = weight_fn(t)
 
         # Forward model loss
-        lossesf = predf_fn(xt, t) - mix.bridge(x).drift(xt, t)
+        lossesf = predf_fn(xt, t, attention_mask, position_ids) - mix.bridge(x).drift(xt, t)
         lossesf = 0.5 * mix.manifold.metric.squared_norm(lossesf, xt)
         lossesf = weight * lossesf
         lossesf = reduce_op(lossesf.reshape(lossesf.shape[0], -1), dim=-1)
 
         # Backward model loss
-        lossesb = predb_fn(xt, mix.tf-t) - mix.rev().bridge(x0).drift(xt, mix.tf-t)
+        lossesb = predb_fn(xt, mix.tf-t, attention_mask, position_ids) - mix.rev().bridge(x0).drift(xt, mix.tf-t)
         lossesb = 0.5 * mix.manifold.metric.squared_norm(lossesb, xt)
         lossesb = weight * lossesb
         lossesb = reduce_op(lossesb.reshape(lossesb.shape[0], -1), dim=-1)
