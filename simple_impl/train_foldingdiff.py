@@ -1,7 +1,9 @@
+import random
 from pathlib import Path
 import torch
+from typing import Iterator
 import numpy as np
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Sampler
 from timeit import default_timer as timer
 
 from tqdm import tqdm
@@ -34,6 +36,37 @@ ds_args = dict(
 )
 train_dataset = CathCanonicalAnglesOnlyDataset(split="train", **ds_args)
 val_dataset = CathCanonicalAnglesOnlyDataset(split="validation", **ds_args)
+
+class SameLenSampler(Sampler[list[int]]):
+    def __init__(self, dataset, batch_size: int):
+        indices_by_seq_lens = {}
+        for i in range(len(dataset)):
+            item = dataset[i]
+            seq_len = item["cossin"][torch.where(item["attn_mask"])[0]].shape[0] / 6
+            indices = indices_by_seq_lens.get(seq_len, [])
+            indices_by_seq_lens[seq_len] = indices + [i]
+        self.indices_by_seq_lens = indices_by_seq_lens
+        self.batch_size = batch_size
+        self.dataset = dataset
+
+    def __len__(self) -> int:
+        return (len(self.dataset) + self.batch_size - 1) // self.batch_size
+    
+    def __iter__(self) -> Iterator[list[int]]:
+        seq_lens = list(self.indices_by_seq_lens.keys())
+        random.shuffle(seq_lens)
+        batches = [
+            batch.tolist()
+            for seq_len in seq_lens
+            for batch in torch.chunk(
+                torch.tensor(self.indices_by_seq_lens[seq_len]),
+                (len(self.indices_by_seq_lens[seq_len]) + self.batch_size - 1) // self.batch_size
+            )
+        ]
+        random.shuffle(batches)
+        yield from batches
+
+train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=SameLenSampler(train_dataset, 32))
 
 exhaustive_t = False
 noised_ds_args = dict(
