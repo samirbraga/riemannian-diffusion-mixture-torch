@@ -114,55 +114,78 @@ mix = DiffusionMixture(
 )
 loss_fn = get_mix_loss_fn(mix, num_steps=15, eps=0.001, weight_type="default")
 
-train_dataloader_iter = iter(train_dataloader)
+def mean_ignoring_outliers_iqr(data_tensor):
+    """
+    Calculates the mean of a PyTorch tensor, ignoring outliers using the IQR method.
+    """
+    q1 = torch.quantile(data_tensor, 0.25)
+    q3 = torch.quantile(data_tensor, 0.75)
+    iqr = q3 - q1
+
+    lower_bound = q1 - 1.5 * iqr
+    upper_bound = q3 + 1.5 * iqr
+
+    # Create a mask for inliers
+    inlier_mask = (data_tensor >= lower_bound) & (data_tensor <= upper_bound)
+
+    # Filter out outliers
+    inliers = data_tensor[inlier_mask]
+
+    # Calculate the mean of the inliers
+    if inliers.numel() > 0:  # Check if there are any inliers left
+        return torch.mean(inliers)
+    else:
+        return torch.tensor(float('nan')) # Return NaN if no inliers remain
 
 
-def train(step=0):
+def train():
     tbar = tqdm(
-        range(step, steps),
-        total=steps - step,
+        range(0, steps),
+        total=steps,
         bar_format="{desc}{bar}{r_bar}",
         mininterval=1,
     )
 
-    for _ in tbar:
-        batch = next(train_dataloader_iter)
+    for epoch in tbar:
+        epoch_lossf = []
+        epoch_lossb = []
+        for i, batch in enumerate(train_dataloader):
+            print(f"epoch {epoch + 1}, batch {i + 1}")
+            data = batch['cossin'].to(device)
+            attention_mask = batch['attn_mask'].to(device)
+            position_ids = batch['position_ids'].to(device)
 
-        data = batch['cossin'].to(device)
-        attention_mask = batch['attn_mask'].to(device)
-        position_ids = batch['position_ids'].to(device)
+            optimizerf.zero_grad()
+            optimizerb.zero_grad()
 
-        optimizerf.zero_grad()
-        optimizerb.zero_grad()
+            loss, lossf, lossb = loss_fn(modelf, modelb, data, attention_mask, position_ids)
+            loss.backward()
 
-        loss, lossf, lossb = loss_fn(modelf, modelb, data, attention_mask, position_ids)
-        loss.backward()
+            if grad_norm > 0:
+                torch.nn.utils.clip_grad_norm_(modelf.parameters(), grad_norm)
+                torch.nn.utils.clip_grad_norm_(modelb.parameters(), grad_norm)
 
-        if grad_norm > 0:
-            torch.nn.utils.clip_grad_norm_(modelf.parameters(), grad_norm)
-            torch.nn.utils.clip_grad_norm_(modelb.parameters(), grad_norm)
+            optimizerf.step()
+            optimizerb.step()
 
-        optimizerf.step()
-        optimizerb.step()
+            if lr_sched:
+                schedulerf.step()
+                schedulerb.step()
 
-        if lr_sched:
-            schedulerf.step()
-            schedulerb.step()
+            # -------- EMA update --------
+            emaf.update(modelf.parameters())
+            emab.update(modelb.parameters())
 
-        # -------- EMA update --------
-        emaf.update(modelf.parameters())
-        emab.update(modelb.parameters())
+            epoch_lossf.append(lossf)
+            epoch_lossb.append(lossb)
+            if torch.isnan(lossf + lossb).any():
+                print("Loss is nan")
+                return False
 
-        step += 1
-
-        if torch.isnan(lossf + lossb).any():
-            print("Loss is nan")
-            return False
-
-        if step % 10 == 0:
-            tbar.set_description(f"F: {lossf:.2f} | B: {lossb:.2f}")
+        epoch_lossf = mean_ignoring_outliers_iqr(torch.tensor(epoch_lossf))
+        epoch_lossb = mean_ignoring_outliers_iqr(torch.tensor(epoch_lossb))
+        tbar.set_description(f"F: {epoch_lossf:.2f} | B: {epoch_lossb:.2f}")
     return True
 
-
 if __name__ == "__main__":
-    success = train(step=0)
+    success = train()
