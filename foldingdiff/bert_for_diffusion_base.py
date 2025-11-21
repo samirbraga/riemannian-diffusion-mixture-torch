@@ -229,7 +229,6 @@ class BertForDiffusionBase(BertPreTrainedModel):
         return_dict = (
             return_dict if return_dict is not None else self.config.use_return_dict
         )
-        inputs = inputs.view(inputs.shape[0], -1, 2)
         input_shape = inputs.size()
         batch_size, seq_length, *_ = input_shape
         logging.debug(f"Detected batch {batch_size} and seq length {seq_length}")
