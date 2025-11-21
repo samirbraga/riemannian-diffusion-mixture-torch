@@ -1,7 +1,7 @@
 import abc
 import torch
 import numpy as np
-from tqdm import trange
+from tqdm import tqdm, trange
 from torchdiffeq import odeint
 
 from geomstats.geometry.manifold import Manifold
@@ -15,10 +15,10 @@ get_corrector, register_corrector = register_category("correctors")
 class Predictor(abc.ABC):
     """The abstract class for a predictor algorithm."""
 
-    def __init__(self, sde):
+    def __init__(self, sde, manifold):
         super().__init__()
         self.sde = sde
-        self.manifold = sde.manifold
+        self.manifold = manifold
 
     @abc.abstractmethod
     def update_fn(self, x, t, dt):
@@ -46,14 +46,14 @@ class Corrector(abc.ABC):
 # -------- GRW --------
 @register_predictor
 class EulerMaruyamaPredictor(Predictor):
-    def __init__(self, sde):
-        super().__init__(sde)
+    def __init__(self, sde, manifold):
+        super().__init__(sde, manifold)
 
     def update_fn(self, x, t, dt):
         shape = x.shape
-        z = self.sde.manifold.random_normal_tangent(
+        z = self.manifold.random_normal_tangent(
             base_point=x, n_samples=shape[0]).reshape(shape[0], -1)
-        drift, diffusion = self.sde.coefficients(x, t)
+        drift, diffusion = self.sde.coefficients(self.manifold, x, t)
 
         if isinstance(dt, torch.Tensor):
             tangent_vector = torch.einsum("...,...i,...->...i", diffusion, z, dt.abs().sqrt())
@@ -118,7 +118,7 @@ class LangevinCorrector(Corrector):
         return bbridge
 
 
-def get_pc_sampler(sde, shape, N, 
+def get_pc_sampler(manifold, sde, shape, N, 
                     predictor="EulerMaruyamaPredictor",
                     corrector="NoneCorrector",
                     snr=0.1, n_steps=1,
@@ -127,7 +127,7 @@ def get_pc_sampler(sde, shape, N,
     """
     assert sde.approx
     predictor = get_predictor(predictor if predictor is not None else "EulerMaruyamaPredictor")(
-        sde
+        sde, manifold
     )
     corrector = get_corrector(corrector if corrector is not None else "NoneCorrector")(
         sde, snr, n_steps
@@ -137,7 +137,7 @@ def get_pc_sampler(sde, shape, N,
         with torch.no_grad():
             # Initial samples
             x = prior_samples if prior_samples is not None else \
-                sde.prior_sampling(shape, device).reshape(shape[0], -1)
+                sde.prior_sampling(manifold, shape, device).reshape(shape[0], -1)
             x0 = x
 
             timesteps = torch.linspace(sde.t0, sde.tf-eps, N, device=x.device)

@@ -40,7 +40,6 @@ class BertForDiffusion(BertForDiffusionBase, pl.LightningModule):
         l2: float = 0.0,
         l1: float = 0.0,
         epochs: int = 1,
-        steps_per_epoch: int = 250,  # Dummy value
         **kwargs,
     ):
         """Feed args to BertForDiffusionBase and then feed the rest into"""
@@ -61,7 +60,6 @@ class BertForDiffusion(BertForDiffusionBase, pl.LightningModule):
         self.l1_lambda = l1
         self.l2_lambda = l2
         self.epochs = epochs
-        self.steps_per_epoch = steps_per_epoch
         
         self.validation_step_outputs = []
         self.training_step_outputs = []

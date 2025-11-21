@@ -222,15 +222,15 @@ class ApproxMixture(Mixture):
         beta_t = self.beta_schedule.beta_t(t)
         return torch.sqrt(beta_t) if not self.use_pode else torch.zeros_like(t)
 
-    def drift(self, x, t):
-        drift = self.fdrift_fn(x, t)
+    def drift(self, manifold, x, t):
+        drift = self.fdrift_fn(manifold, x, t)
         if self.use_pode:
-            scaled_score_fn = drift + self.bdrift_fn(x, self.tf-t)
+            scaled_score_fn = drift + self.bdrift_fn(manifold, x, self.tf-t)
             drift = drift - 0.5 * scaled_score_fn
         return drift
 
-    def coefficients(self, x, t):
-        return self.drift(x, t), self.diffusion(x, t)
+    def coefficients(self, manifold, x, t):
+        return self.drift(manifold, x, t), self.diffusion(x, t)
 
     def prior_sampling(self, manifold, shape, device):
         return self.prior.sample(manifold, shape, device)

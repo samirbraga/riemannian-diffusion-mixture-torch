@@ -50,9 +50,6 @@ class SameLenSampler(Sampler[list[int]]):
         self.batch_size = batch_size
         self.dataset = dataset
         self.shuffle = shuffle
-
-    def __len__(self) -> int:
-        return (len(self.dataset) + self.batch_size - 1) // self.batch_size
     
     def __iter__(self) -> Iterator[list[int]]:        
         batches = []
