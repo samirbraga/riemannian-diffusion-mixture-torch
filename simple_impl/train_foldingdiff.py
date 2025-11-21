@@ -214,6 +214,10 @@ def train():
                 print("Loss is nan")
                 return False
 
+        
+        torch.save(modelf.state_dict(), './forward_bert.pt')
+        torch.save(modelb.state_dict(), './backward_bert.pt')
+
         epoch_lossf = mean_ignoring_outliers_iqr(torch.tensor(epoch_lossf))
         epoch_lossb = mean_ignoring_outliers_iqr(torch.tensor(epoch_lossb))
         tbar.set_description(f"F: {epoch_lossf:.2f} | B: {epoch_lossb:.2f}")
