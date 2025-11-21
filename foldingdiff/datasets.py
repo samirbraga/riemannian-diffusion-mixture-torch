@@ -372,9 +372,6 @@ class CathCanonicalAnglesDataset(Dataset):
             raise IndexError("Index out of range")
 
         angles = self.structures[index]["angles"]
-        # NOTE coords are NOT shifted or wrapped, has same length as angles
-        coords = self.structures[index]["coords"]
-        assert angles.shape[0] == coords.shape[0]
 
         # If given, offset the angles with mean
         if self.means is not None and not ignore_zero_center:
@@ -406,44 +403,10 @@ class CathCanonicalAnglesDataset(Dataset):
         # Create attention mask. 0 indicates masked
         n_angles = len(self.feature_names["angles"])
         l = min(self.pad * n_angles, angles.shape[0] * n_angles)
-        attn_mask = torch.zeros(size=(self.pad * n_angles,))
-        attn_mask[:l] = 1.0
 
-        # Additionally, mask out positions that are nan
-        # is_nan = np.where(np.any(np.isnan(angles), axis=1))[0]
-        # attn_mask[is_nan] = 0.0  # Mask out the nan positions
-
-        # Perform padding/trimming
-        if angles.shape[0] < self.pad:
-            angles = np.pad(
-                angles,
-                ((0, self.pad - angles.shape[0]), (0, 0)),
-                mode="constant",
-                constant_values=0,
-            )
-            coords = np.pad(
-                coords,
-                ((0, self.pad - coords.shape[0]), (0, 0)),
-                mode="constant",
-                constant_values=0,
-            )
-        elif angles.shape[0] > self.pad:
+        if angles.shape[0] > self.pad:
             if self.trim_strategy == "leftalign":
                 angles = angles[: self.pad]
-                coords = coords[: self.pad]
-            elif self.trim_strategy == "randomcrop":
-                # Randomly crop the sequence to
-                start_idx = self.rng.integers(0, angles.shape[0] - self.pad)
-                end_idx = start_idx + self.pad
-                assert end_idx < angles.shape[0]
-                angles = angles[start_idx:end_idx]
-                coords = coords[start_idx:end_idx]
-                assert angles.shape[0] == coords.shape[0] == self.pad
-            else:
-                raise ValueError(f"Unknown trim strategy: {self.trim_strategy}")
-
-        # Create position IDs
-        position_ids = torch.arange(start=0, end=self.pad * n_angles, step=1, dtype=torch.long)
 
         angular_idx = np.where(CathCanonicalAnglesDataset.feature_is_angular["angles"])[
             0
@@ -455,13 +418,9 @@ class CathCanonicalAnglesDataset(Dataset):
             angles[:, angular_idx], "<=", np.pi
         ), f"Illegal value: {np.max(angles[:, angular_idx])}"
         angles = torch.from_numpy(angles).float()
-        coords = torch.from_numpy(coords).float()
 
         retval = {
             "angles": angles,
-            "coords": coords,
-            "attn_mask": attn_mask,
-            "position_ids": position_ids,
             "lengths": torch.tensor(l, dtype=torch.int64),
         }
         return retval
