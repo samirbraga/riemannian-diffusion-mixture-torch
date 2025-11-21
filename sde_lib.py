@@ -1,14 +1,12 @@
 import abc
 import numpy as np
 import torch
-from geomstats.geometry.manifold import Manifold
 from distribution import UniformDistribution, Wrapped
 
 class Mixture(abc.ABC):
-    def __init__(self, manifold: Manifold, beta_schedule, prior_type='unif', **kwargs):
+    def __init__(self, beta_schedule, prior_type='unif', **kwargs):
         """Base Mixture"""
         super().__init__()
-        self.manifold = manifold
         self.beta_schedule = beta_schedule
         self.t0 = beta_schedule.t0
         self.tf = beta_schedule.tf
@@ -26,7 +24,7 @@ class Mixture(abc.ABC):
     @property
     def prior(self):
         if self.prior_type == 'unif':
-            return UniformDistribution(self.manifold)
+            return UniformDistribution()
         elif self.prior_type == 'wrapped':
             pparams = {'scale': self.kwargs['scale'], 
                 'batch_dims': self.kwargs['batch_dims'],
@@ -70,18 +68,18 @@ class Mixture(abc.ABC):
 
 
 class DiffusionMixture(Mixture):
-    def __init__(self, manifold, beta_schedule, prior_type='unif', 
+    def __init__(self, beta_schedule, prior_type='unif', 
                 pred=False, pred_scale=1.0,
                 drift_scale=1.0, mix_type='log', **kwargs):
         """Diffusion Mixture"""
-        super().__init__(manifold, beta_schedule, prior_type, **kwargs)
+        super().__init__(beta_schedule, prior_type, **kwargs)
         self.pred = pred
         self.pred_scale = pred_scale
         self.drift_scale = drift_scale
         self.mix_type = mix_type
 
-    def bridge(self, dest):
-        bparams = {'manifold': self.manifold, 'beta_schedule': self.beta_schedule, 
+    def bridge(self, manifold, dest):
+        bparams = {'manifold': manifold, 'beta_schedule': self.beta_schedule, 
                     'dest': dest, 'drift_scale': self.drift_scale}
         if self.mix_type == 'log':
             return BrownianBridge(**bparams, **self.kwargs)
@@ -94,31 +92,31 @@ class DiffusionMixture(Mixture):
         if not train:
             model.eval()
 
-        def drift_fn(x, t, attention_mask, position_ids):
-            drift = model(x, t.unsqueeze(-1), attention_mask, position_ids).reshape(x.shape)
+        def drift_fn(manifold, x, t):
+            drift = model(x, t.unsqueeze(-1))
             if self.pred:
                 scale = self.drift_scale * self.time_scale(t) / self.pred_scale
-                drift = self.manifold.log(drift, x)
-                drift = self.manifold.to_tangent(drift, x)
+                drift = manifold.log(drift, x)
+                drift = manifold.to_tangent(drift, x)
                 drift = torch.einsum("...i,...->...i", drift, scale)
             return drift
         return drift_fn
 
-    def probability_ode(self, modelf, modelb):
+    def probability_ode(self, manifold, modelf, modelb):
         driftf = self.get_drift_fn(modelf, train=False)
         driftb = self.rev().get_drift_fn(modelb, train=False)
-        return BackwardProbabilityFlowODE(self.manifold, driftf, driftb, self.t0, self.tf)
+        return BackwardProbabilityFlowODE(manifold, driftf, driftb, self.t0, self.tf)
 
     def rev(self):
         # prior of the reverse should be the data distribution
-        return DiffusionMixture(self.manifold, self.beta_schedule.reverse(), 
+        return DiffusionMixture(self.beta_schedule.reverse(), 
                                 prior_type='data', pred=self.pred, 
                                 pred_scale=self.pred_scale, drift_scale=self.drift_scale, 
                                 mix_type=self.mix_type, **self.kwargs)
 
     def approx(self, fdrift_fn, bdrift_fn, use_pode):
-        return ApproxMixture(self.manifold, self.beta_schedule, self.prior_type, 
-                                fdrift_fn, bdrift_fn, use_pode, **self.kwargs)
+        return ApproxMixture(self.beta_schedule, self.prior_type, 
+                             fdrift_fn, bdrift_fn, use_pode, **self.kwargs)
 
 
 class Bridge(abc.ABC):
@@ -211,10 +209,10 @@ class BackwardProbabilityFlowODE:
 
 
 class ApproxMixture(Mixture):
-    def __init__(self, manifold, beta_schedule, prior_type='unif', 
+    def __init__(self, beta_schedule, prior_type='unif', 
                     fdrift_fn=None, bdrift_fn=None, use_pode=False, **kwargs):
         """Approximated Diffusion Mixture"""
-        super().__init__(manifold, beta_schedule, prior_type, **kwargs)
+        super().__init__(beta_schedule, prior_type, **kwargs)
         self.approx = True
         self.fdrift_fn = fdrift_fn
         self.bdrift_fn = bdrift_fn
@@ -234,5 +232,5 @@ class ApproxMixture(Mixture):
     def coefficients(self, x, t):
         return self.drift(x, t), self.diffusion(x, t)
 
-    def prior_sampling(self, shape, device):
-        return self.prior.sample(shape, device)
+    def prior_sampling(self, manifold, shape, device):
+        return self.prior.sample(manifold, shape, device)

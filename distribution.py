@@ -10,15 +10,11 @@ from geomstats.geometry.special_orthogonal import _SpecialOrthogonalMatrices, \
 
 class UniformDistribution:
     """Uniform density on compact manifold"""
+    def sample(self, manifold, shape, device):
+        return manifold.random_uniform(n_samples=shape[0], device=device)
 
-    def __init__(self, manifold):
-        self.manifold = manifold
-
-    def sample(self, shape, device):
-        return self.manifold.random_uniform(n_samples=shape[0], device=device)
-
-    def log_prob(self, z):
-        return -np.ones([z.shape[0]]) * self.manifold.log_volume
+    def log_prob(self, manifold, z):
+        return -np.ones([z.shape[0]]) * manifold.log_volume
 
 
 class Wrapped:

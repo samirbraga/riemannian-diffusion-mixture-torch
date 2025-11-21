@@ -4,6 +4,8 @@ import numpy as np
 from tqdm import trange
 from torchdiffeq import odeint
 
+from geomstats.geometry.manifold import Manifold
+from sde_lib import DiffusionMixture
 from util.registry import register_category
 
 get_predictor, register_predictor = register_category("predictors")
@@ -213,15 +215,15 @@ def get_grw_sampler(sde, N=100,
 
 
 class EulerMaruyamaTwoWayPredictor:
-    def __init__(self, mix, x0, xf, mask):
+    def __init__(self, mix: DiffusionMixture, manifold: Manifold, x0, xf, mask):
         self.mix = mix
         self.x0 = x0
         self.xf = xf
         self.mask = mask
 
-        self.manifold = mix.manifold
-        self.fsde = mix.bridge(xf)
-        self.bsde = mix.rev().bridge(x0)
+        self.manifold = manifold
+        self.fsde = mix.bridge(manifold, xf)
+        self.bsde = mix.rev().bridge(manifold, x0)
 
     def update_fn(self, x, t, dt):
         shape = x.shape
@@ -243,10 +245,10 @@ class EulerMaruyamaTwoWayPredictor:
 def get_twoway_sampler(mix, N=10): 
     """Create a Two-way sampler.
     """
-    def sampler(x0, xf, t):
+    def sampler(manifold, x0, xf, t):
         with torch.no_grad():
             t_mask = t < 0.5
-            predictor = EulerMaruyamaTwoWayPredictor(mix, x0, xf, t_mask)
+            predictor = EulerMaruyamaTwoWayPredictor(mix, manifold, x0, xf, t_mask)
             x = torch.einsum("...i,...->...i", x0, t_mask) + \
                 torch.einsum("...i,...->...i", xf, ~t_mask)
 

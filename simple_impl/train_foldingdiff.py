@@ -38,59 +38,59 @@ train_dataset = CathCanonicalAnglesOnlyDataset(split="train", **ds_args)
 val_dataset = CathCanonicalAnglesOnlyDataset(split="validation", **ds_args)
 
 class SameLenSampler(Sampler[list[int]]):
-    def __init__(self, dataset, batch_size: int):
+    def __init__(self, dataset, batch_size: int, shuffle: bool = True):
         indices_by_seq_lens = {}
         for i in range(len(dataset)):
             item = dataset[i]
-            seq_len = item["cossin"][torch.where(item["attn_mask"])[0]].shape[0] / 6
+            seq_len = item['angles'].shape[0]
             indices = indices_by_seq_lens.get(seq_len, [])
             indices_by_seq_lens[seq_len] = indices + [i]
         self.indices_by_seq_lens = indices_by_seq_lens
         self.batch_size = batch_size
         self.dataset = dataset
+        self.shuffle = shuffle
 
     def __len__(self) -> int:
         return (len(self.dataset) + self.batch_size - 1) // self.batch_size
     
-    def __iter__(self) -> Iterator[list[int]]:
-        seq_lens = list(self.indices_by_seq_lens.keys())
-        random.shuffle(seq_lens)
-        batches = [
-            batch.tolist()
-            for seq_len in seq_lens
-            for batch in torch.chunk(
-                torch.tensor(self.indices_by_seq_lens[seq_len]),
-                (len(self.indices_by_seq_lens[seq_len]) + self.batch_size - 1) // self.batch_size
-            )
-        ]
-        random.shuffle(batches)
+    def __iter__(self) -> Iterator[list[int]]:        
+        batches = []
+        for seq_len in self.indices_by_seq_lens.keys():
+            indices = torch.tensor(self.indices_by_seq_lens[seq_len])
+            perm = torch.randperm(len(indices)) if self.shuffle else torch.arange(len(indices))
+            indices = indices[perm]
+            num_batches = (len(indices) + self.batch_size - 1) // self.batch_size
+            for batch in torch.chunk(indices, num_batches):
+                batches.append(batch.tolist())
+        if self.shuffle:
+            random.shuffle(batches)
         yield from batches
 
-train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=SameLenSampler(train_dataset, 32))
-
 exhaustive_t = False
-noised_ds_args = dict(
-    dset_key="angles",
-    timesteps=1000,
-    exhaustive_t=False,
-    beta_schedule="linear",
-    nonangular_variance=1.0,
-    angular_variance=np.pi,
-)
-train_noised_dataset = NoisedAnglesDataset(dset=train_dataset, **noised_ds_args)
-val_noised_dataset = NoisedAnglesDataset(dset=val_dataset, **noised_ds_args)
+# noised_ds_args = dict(
+#     dset_key="angles",
+#     timesteps=1000,
+#     exhaustive_t=False,
+#     beta_schedule="linear",
+#     nonangular_variance=1.0,
+#     angular_variance=np.pi,
+# )
+# train_noised_dataset = NoisedAnglesDataset(dset=train_dataset, **noised_ds_args)
+# val_noised_dataset = NoisedAnglesDataset(dset=val_dataset, **noised_ds_args)
 
-dl_args = dict(
-    batch_size=16,
-    shuffle=False,
+
+train_dataloader = DataLoader(
+    dataset=train_dataset,
+    batch_sampler=SameLenSampler(train_dataset, batch_size=16, shuffle=True),
     num_workers=4,
     pin_memory=True,
 )
-train_dataloader = DataLoader(
-    dataset=train_noised_dataset,
-    **{**dl_args, "shuffle": True},  # Shuffle only train loader
+val_dataloader = DataLoader(
+    dataset=val_dataset,
+    batch_sampler=SameLenSampler(val_dataset, batch_size=16, shuffle=False),
+    num_workers=4,
+    pin_memory=True,
 )
-val_dataloader = DataLoader(dataset=val_noised_dataset, **dl_args)
 
 angles_per_residue = len(train_dataset.feature_names["angles"])  # 6 right now
 cfg = BertConfig(
@@ -135,9 +135,7 @@ schedulerf = torch.optim.lr_scheduler.CosineAnnealingLR(optimizerf, T_max=10000)
 schedulerb = torch.optim.lr_scheduler.CosineAnnealingLR(optimizerb, T_max=10000)
 beta_schedule = LinearBetaSchedule(beta_0=0.2, beta_f=0.001, t0=0, tf=1.0)
 
-manifold = Torus(max_seq_len * 6)
 mix = DiffusionMixture(
-    manifold,
     beta_schedule,
     mix_type="log",
     drift_scale=1.0,
@@ -185,13 +183,14 @@ def train():
         for i, batch in enumerate(train_dataloader):
             print(f"epoch {epoch + 1}, batch {i + 1}")
             data = batch['cossin'].to(device)
-            attention_mask = batch['attn_mask'].to(device)
-            position_ids = batch['position_ids'].to(device)
+            manifold_dim = batch['angles'].shape[1] * angles_per_residue
+
+            manifold = Torus(manifold_dim)
 
             optimizerf.zero_grad()
             optimizerb.zero_grad()
 
-            loss, lossf, lossb = loss_fn(modelf, modelb, data, attention_mask, position_ids)
+            loss, lossf, lossb = loss_fn(manifold, modelf, modelb, data)
             loss.backward()
 
             if grad_norm > 0:
