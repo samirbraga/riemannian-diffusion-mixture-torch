@@ -1,8 +1,9 @@
 import random
 import torch
 from typing import Iterator
-from torch.utils.data import DataLoader, Sampler
 
+from torch.utils.data import DataLoader, Sampler
+import wandb
 from tqdm import tqdm
 from transformers import BertConfig
 from foldingdiff.bert_for_diffusion import BertForDiffusion
@@ -12,7 +13,6 @@ from losses import get_mix_loss_fn
 from schedule import LinearBetaSchedule
 from sde_lib import DiffusionMixture
 from util.ema import ExponentialMovingAverage
-import wandb
 from dotenv import load_dotenv
 
 load_dotenv()
