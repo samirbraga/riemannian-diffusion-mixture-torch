@@ -1,20 +1,21 @@
 import random
-from pathlib import Path
 import torch
 from typing import Iterator
-import numpy as np
 from torch.utils.data import DataLoader, Sampler
-from timeit import default_timer as timer
 
 from tqdm import tqdm
 from transformers import BertConfig
 from foldingdiff.bert_for_diffusion import BertForDiffusion
-from foldingdiff.datasets import NoisedAnglesDataset, CathCanonicalAnglesOnlyDataset
+from foldingdiff.datasets import CathCanonicalAnglesOnlyDataset
 from geomstats.geometry.torus import Torus
 from losses import get_mix_loss_fn
 from schedule import LinearBetaSchedule
 from sde_lib import DiffusionMixture
 from util.ema import ExponentialMovingAverage
+import wandb
+from dotenv import load_dotenv
+
+load_dotenv()
 
 LEARNING_RATE = 2e-5
 
@@ -65,19 +66,6 @@ class SameLenSampler(Sampler[list[int]]):
         if self.shuffle:
             random.shuffle(batches)
         yield from batches
-
-exhaustive_t = False
-# noised_ds_args = dict(
-#     dset_key="angles",
-#     timesteps=1000,
-#     exhaustive_t=False,
-#     beta_schedule="linear",
-#     nonangular_variance=1.0,
-#     angular_variance=np.pi,
-# )
-# train_noised_dataset = NoisedAnglesDataset(dset=train_dataset, **noised_ds_args)
-# val_noised_dataset = NoisedAnglesDataset(dset=val_dataset, **noised_ds_args)
-
 
 train_dataloader = DataLoader(
     dataset=train_dataset,
@@ -170,6 +158,8 @@ def mean_ignoring_outliers_iqr(data_tensor):
 
 
 def train():
+    run = wandb.init(entity='rdem', project='Standard Metric - RiemannDiff')
+
     tbar = tqdm(
         range(0, steps),
         total=steps,
@@ -213,6 +203,8 @@ def train():
             if torch.isnan(lossf + lossb).any():
                 print("Loss is nan")
                 return False
+
+            run.log({"lossf": lossf, "lossb": lossb}, step=(epoch + 1) * (i + 1))
 
         
         torch.save(modelf.state_dict(), './forward_bert.pt')

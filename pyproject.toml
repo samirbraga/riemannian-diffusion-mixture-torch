@@ -8,6 +8,7 @@ dependencies = [
     "biopython>=1.85",
     "biotite>=1.5.0",
     "cartopy>=0.25.0",
+    "dotenv>=0.9.9",
     "fsspec[http]>=2021.5.0,!=2021.6.0",
     "hydra-colorlog>=1.2.0",
     "hydra-core>=1.3.0",
@@ -24,4 +25,6 @@ dependencies = [
     "torchdiffeq>=0.2.5",
     "tqdm>=4.67.1",
     "transformers>=4.57.1",
+    "wandb>=0.23.0",
+    "weave>=0.52.17",
 ]
