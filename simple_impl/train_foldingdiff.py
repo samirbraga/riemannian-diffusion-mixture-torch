@@ -1,4 +1,5 @@
 import random
+import contextlib
 import torch
 from typing import Iterator
 
@@ -15,6 +16,7 @@ from schedule import LinearBetaSchedule
 from sde_lib import DiffusionMixture
 # from util.ema import ExponentialMovingAverage
 from dotenv import load_dotenv
+from torch.amp import autocast, GradScaler
 
 load_dotenv()
 
@@ -51,6 +53,14 @@ class SameLenSampler(Sampler[list[int]]):
         self.batch_size = batch_size
         self.dataset = dataset
         self.shuffle = shuffle
+
+    def __len__(self) -> int:
+        total_batches = 0
+        for seq_len in self.indices_by_seq_lens.keys():
+            indices = self.indices_by_seq_lens[seq_len]
+            num_batches = (len(indices) + self.batch_size - 1) // self.batch_size
+            total_batches += num_batches
+        return total_batches
     
     def __iter__(self) -> Iterator[list[int]]:        
         batches = []
@@ -100,15 +110,13 @@ optimizerb = torch.optim.AdamW(modelb.parameters(), lr=LEARNING_RATE, weight_dec
 
 # emaf = ExponentialMovingAverage(modelf.parameters(), decay=0.9999)
 # emab = ExponentialMovingAverage(modelb.parameters(), decay=0.9999)
+
+num_training_steps = steps * len(train_dataloader)
 schedulerf = get_linear_schedule_with_warmup(
-    optimizer=optimizerf,
-    num_warmup_steps=int(steps * 0.1),
-    num_training_steps=steps
+    optimizer=optimizerf, num_warmup_steps=int(num_training_steps * 0.1), num_training_steps=num_training_steps
 )
 schedulerb = get_linear_schedule_with_warmup(
-    optimizer=optimizerb,
-    num_warmup_steps=int(steps * 0.1),
-    num_training_steps=steps
+    optimizer=optimizerb, num_warmup_steps=int(num_training_steps * 0.1), num_training_steps=num_training_steps
 )
 
 beta_schedule = LinearBetaSchedule(beta_0=0.2, beta_f=0.001, t0=0, tf=1.0)
@@ -124,10 +132,7 @@ mix = DiffusionMixture(
 loss_fn = get_mix_loss_fn(mix, num_steps=100, eps=0.001, weight_type="default")
 
 def mean_ignoring_outliers(data_tensor):
-    # Create a mask for inliers
     inlier_mask = (data_tensor <= 10e8)
-
-    # Filter out outliers
     inliers = data_tensor[inlier_mask]
 
     if inliers.numel() > 0:  # Check if there are any inliers left
@@ -146,27 +151,45 @@ def train():
         mininterval=1,
     )
 
+    torus_map = {
+        i: Torus(i * angles_per_residue)
+        for i in range(min_seq_len, max_seq_len + 1)
+    }
+
+    scaler = GradScaler(enabled=device.type == "cuda")
+    amp_ctx = autocast if scaler.is_enabled() else contextlib.nullcontext
+
     for epoch in tbar:
         epoch_lossf = []
         epoch_lossb = []
         for i, batch in enumerate(train_dataloader):
             data = batch['cossin'].to(device)
-            manifold_dim = batch['angles'].shape[1] * angles_per_residue
-
-            manifold = Torus(manifold_dim)
+            seq_len = batch['angles'].shape[1]
+            manifold = torus_map[seq_len]
 
             optimizerf.zero_grad()
             optimizerb.zero_grad()
 
-            loss, lossf, lossb = loss_fn(manifold, modelf, modelb, data)
-            loss.backward()
+            with amp_ctx():
+                loss, lossf, lossb = loss_fn(manifold, modelf, modelb, data)
 
-            # if grad_norm > 0:
-            #     torch.nn.utils.clip_grad_norm_(modelf.parameters(), grad_norm)
-            #     torch.nn.utils.clip_grad_norm_(modelb.parameters(), grad_norm)
-
-            optimizerf.step()
-            optimizerb.step()
+            if scaler.is_enabled():
+                scaler.scale(loss).backward()
+                if grad_norm > 0:
+                    scaler.unscale_(optimizerf)
+                    scaler.unscale_(optimizerb)
+                    torch.nn.utils.clip_grad_norm_(modelf.parameters(), grad_norm)
+                    torch.nn.utils.clip_grad_norm_(modelb.parameters(), grad_norm)
+                scaler.step(optimizerf)
+                scaler.step(optimizerb)
+                scaler.update()
+            else:
+                loss.backward()
+                if grad_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(modelf.parameters(), grad_norm)
+                    torch.nn.utils.clip_grad_norm_(modelb.parameters(), grad_norm)
+                optimizerf.step()
+                optimizerb.step()
 
             if lr_sched:
                 schedulerf.step()
@@ -185,8 +208,8 @@ def train():
         torch.save(modelf.state_dict(), './forward_bert.pt')
         torch.save(modelb.state_dict(), './backward_bert.pt')
 
-        epoch_lossf = mean_ignoring_outliers(torch.tensor(epoch_lossf))
-        epoch_lossb = mean_ignoring_outliers(torch.tensor(epoch_lossb))
+        epoch_lossf = mean_ignoring_outliers(torch.tensor(epoch_lossf.detach()))
+        epoch_lossb = mean_ignoring_outliers(torch.tensor(epoch_lossb.detach()))
 
         run.log({"lossf": epoch_lossf, "lossb": epoch_lossb}, step=epoch)
         tbar.set_description(f"F: {epoch_lossf:.2f} | B: {epoch_lossb:.2f}")
