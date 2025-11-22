@@ -6,26 +6,27 @@ from torch.utils.data import DataLoader, Sampler
 import wandb
 from tqdm import tqdm
 from transformers import BertConfig
+from transformers.optimization import get_linear_schedule_with_warmup
 from foldingdiff.bert_for_diffusion import BertForDiffusion
 from foldingdiff.datasets import CathCanonicalAnglesOnlyDataset
 from geomstats.geometry.torus import Torus
 from losses import get_mix_loss_fn
 from schedule import LinearBetaSchedule
 from sde_lib import DiffusionMixture
-from util.ema import ExponentialMovingAverage
+# from util.ema import ExponentialMovingAverage
 from dotenv import load_dotenv
 
 load_dotenv()
 
-LEARNING_RATE = 2e-5
+LEARNING_RATE = 5e-5
 
 max_seq_len = 128
 min_seq_len = 40
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
-steps = 200000
+steps = 100
 grad_norm = 1.0
-lr_sched = False
+lr_sched = True
 
 ds_args = dict(
     pad=max_seq_len,
@@ -66,13 +67,13 @@ class SameLenSampler(Sampler[list[int]]):
 
 train_dataloader = DataLoader(
     dataset=train_dataset,
-    batch_sampler=SameLenSampler(train_dataset, batch_size=16, shuffle=True),
+    batch_sampler=SameLenSampler(train_dataset, batch_size=32, shuffle=True),
     num_workers=4,
     pin_memory=True,
 )
 val_dataloader = DataLoader(
     dataset=val_dataset,
-    batch_sampler=SameLenSampler(val_dataset, batch_size=16, shuffle=False),
+    batch_sampler=SameLenSampler(val_dataset, batch_size=32, shuffle=False),
     num_workers=4,
     pin_memory=True,
 )
@@ -91,33 +92,25 @@ cfg = BertConfig(
     _attn_implementation="eager"
 )
 
-modelf = BertForDiffusion(
-    config=cfg,
-    ft_names=train_dataset.feature_names["angles"],
-    lr=5e-05,
-    l2=0.0,
-    l1=0.0,
-    epochs=10000,
-    steps_per_epoch=len(train_dataloader),
-).to(device)
-modelb = BertForDiffusion(
-    config=cfg,
-    ft_names=train_dataset.feature_names["angles"],
-    lr=5e-05,
-    l2=0.0,
-    l1=0.0,
-    epochs=10000,
-    steps_per_epoch=len(train_dataloader),
-).to(device)
+modelf = BertForDiffusion(config=cfg, ft_names=train_dataset.feature_names["angles"]).to(device)
+modelb = BertForDiffusion(config=cfg, ft_names=train_dataset.feature_names["angles"]).to(device)
 
-optimizerf = torch.optim.Adam(modelf.parameters(), lr=LEARNING_RATE)
-optimizerb = torch.optim.Adam(modelb.parameters(), lr=LEARNING_RATE)
+optimizerf = torch.optim.AdamW(modelf.parameters(), lr=LEARNING_RATE, weight_decay=0)
+optimizerb = torch.optim.AdamW(modelb.parameters(), lr=LEARNING_RATE, weight_decay=0)
 
-emaf = ExponentialMovingAverage(modelf.parameters(), decay=0.9999)
-emab = ExponentialMovingAverage(modelb.parameters(), decay=0.9999)
+# emaf = ExponentialMovingAverage(modelf.parameters(), decay=0.9999)
+# emab = ExponentialMovingAverage(modelb.parameters(), decay=0.9999)
+schedulerf = get_linear_schedule_with_warmup(
+    optimizer=optimizerf,
+    num_warmup_steps=int(steps * 0.1),
+    num_training_steps=steps
+)
+schedulerb = get_linear_schedule_with_warmup(
+    optimizer=optimizerb,
+    num_warmup_steps=int(steps * 0.1),
+    num_training_steps=steps
+)
 
-schedulerf = torch.optim.lr_scheduler.CosineAnnealingLR(optimizerf, T_max=10000)
-schedulerb = torch.optim.lr_scheduler.CosineAnnealingLR(optimizerb, T_max=10000)
 beta_schedule = LinearBetaSchedule(beta_0=0.2, beta_f=0.001, t0=0, tf=1.0)
 
 mix = DiffusionMixture(
@@ -128,26 +121,15 @@ mix = DiffusionMixture(
     pred_scale=1.0,
     prior_type="unif",
 )
-loss_fn = get_mix_loss_fn(mix, num_steps=15, eps=0.001, weight_type="default")
+loss_fn = get_mix_loss_fn(mix, num_steps=100, eps=0.001, weight_type="default")
 
-def mean_ignoring_outliers_iqr(data_tensor):
-    """
-    Calculates the mean of a PyTorch tensor, ignoring outliers using the IQR method.
-    """
-    q1 = torch.quantile(data_tensor, 0.25)
-    q3 = torch.quantile(data_tensor, 0.75)
-    iqr = q3 - q1
-
-    lower_bound = q1 - 1.5 * iqr
-    upper_bound = q3 + 1.5 * iqr
-
+def mean_ignoring_outliers(data_tensor):
     # Create a mask for inliers
-    inlier_mask = (data_tensor >= lower_bound) & (data_tensor <= upper_bound)
+    inlier_mask = (data_tensor <= 10e8)
 
     # Filter out outliers
     inliers = data_tensor[inlier_mask]
 
-    # Calculate the mean of the inliers
     if inliers.numel() > 0:  # Check if there are any inliers left
         return torch.mean(inliers)
     else:
@@ -168,7 +150,6 @@ def train():
         epoch_lossf = []
         epoch_lossb = []
         for i, batch in enumerate(train_dataloader):
-            print(f"epoch {epoch + 1}, batch {i + 1}")
             data = batch['cossin'].to(device)
             manifold_dim = batch['angles'].shape[1] * angles_per_residue
 
@@ -180,9 +161,9 @@ def train():
             loss, lossf, lossb = loss_fn(manifold, modelf, modelb, data)
             loss.backward()
 
-            if grad_norm > 0:
-                torch.nn.utils.clip_grad_norm_(modelf.parameters(), grad_norm)
-                torch.nn.utils.clip_grad_norm_(modelb.parameters(), grad_norm)
+            # if grad_norm > 0:
+            #     torch.nn.utils.clip_grad_norm_(modelf.parameters(), grad_norm)
+            #     torch.nn.utils.clip_grad_norm_(modelb.parameters(), grad_norm)
 
             optimizerf.step()
             optimizerb.step()
@@ -192,23 +173,22 @@ def train():
                 schedulerb.step()
 
             # -------- EMA update --------
-            emaf.update(modelf.parameters())
-            emab.update(modelb.parameters())
+            # emaf.update(modelf.parameters())
+            # emab.update(modelb.parameters())
 
             epoch_lossf.append(lossf)
             epoch_lossb.append(lossb)
             if torch.isnan(lossf + lossb).any():
                 print("Loss is nan")
                 return False
-
-            run.log({"lossf": lossf, "lossb": lossb}, step=(epoch + 1) * (i + 1))
-
         
         torch.save(modelf.state_dict(), './forward_bert.pt')
         torch.save(modelb.state_dict(), './backward_bert.pt')
 
-        epoch_lossf = mean_ignoring_outliers_iqr(torch.tensor(epoch_lossf))
-        epoch_lossb = mean_ignoring_outliers_iqr(torch.tensor(epoch_lossb))
+        epoch_lossf = mean_ignoring_outliers(torch.tensor(epoch_lossf))
+        epoch_lossb = mean_ignoring_outliers(torch.tensor(epoch_lossb))
+
+        run.log({"lossf": epoch_lossf, "lossb": epoch_lossb}, step=epoch)
         tbar.set_description(f"F: {epoch_lossf:.2f} | B: {epoch_lossb:.2f}")
     return True
 

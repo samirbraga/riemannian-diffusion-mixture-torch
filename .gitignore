@@ -155,9 +155,8 @@ data/angles
 
 source_code.tar.gz
 
-
-
-
 .vscode-server
 
 wandb
+
+*.pt
