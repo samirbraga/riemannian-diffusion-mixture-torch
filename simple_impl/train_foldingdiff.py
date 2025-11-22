@@ -129,7 +129,7 @@ mix = DiffusionMixture(
     pred_scale=1.0,
     prior_type="unif",
 )
-loss_fn = get_mix_loss_fn(mix, num_steps=100, eps=0.001, weight_type="default")
+loss_fn = get_mix_loss_fn(mix, reduce_mean=True, num_steps=100, eps=0.001, weight_type="default")
 
 def mean_ignoring_outliers(data_tensor):
     inlier_mask = (data_tensor <= 10e8)
@@ -170,7 +170,7 @@ def train():
             optimizerf.zero_grad()
             optimizerb.zero_grad()
 
-            with amp_ctx():
+            with amp_ctx(device_type=device.type):
                 loss, lossf, lossb = loss_fn(manifold, modelf, modelb, data)
 
             if scaler.is_enabled():
@@ -199,17 +199,18 @@ def train():
             # emaf.update(modelf.parameters())
             # emab.update(modelb.parameters())
 
-            epoch_lossf.append(lossf)
-            epoch_lossb.append(lossb)
+            epoch_lossf.append(lossf.detach())
+            epoch_lossb.append(lossb.detach())
             if torch.isnan(lossf + lossb).any():
                 print("Loss is nan")
                 return False
+
         
         torch.save(modelf.state_dict(), './forward_bert.pt')
         torch.save(modelb.state_dict(), './backward_bert.pt')
 
-        epoch_lossf = mean_ignoring_outliers(torch.tensor(epoch_lossf.detach()))
-        epoch_lossb = mean_ignoring_outliers(torch.tensor(epoch_lossb.detach()))
+        epoch_lossf = mean_ignoring_outliers(torch.tensor(epoch_lossf))
+        epoch_lossb = mean_ignoring_outliers(torch.tensor(epoch_lossb))
 
         run.log({"lossf": epoch_lossf, "lossb": epoch_lossb}, step=epoch)
         tbar.set_description(f"F: {epoch_lossf:.2f} | B: {epoch_lossb:.2f}")
