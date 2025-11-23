@@ -90,7 +90,7 @@ val_dataloader = DataLoader(
 
 angles_per_residue = len(train_dataset.feature_names["angles"])  # 6 right now
 cfg = BertConfig(
-    max_position_embeddings=max_seq_len * angles_per_residue,
+    max_position_embeddings=max_seq_len,
     num_attention_heads=6,
     hidden_size=192,
     intermediate_size=384,

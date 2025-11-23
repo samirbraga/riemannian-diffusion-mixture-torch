@@ -73,7 +73,7 @@ class BertForDiffusionBase(BertPreTrainedModel):
         if self.config.is_decoder:
             raise NotImplementedError
 
-        n_inputs = 2 # len(ft_names)
+        n_inputs = 12 # len(ft_names)
         self.n_inputs = n_inputs
 
         self.ft_names = ft_names
@@ -190,7 +190,7 @@ class BertForDiffusionBase(BertPreTrainedModel):
     def forward(
         self,
         inputs: torch.Tensor,
-        timestep: torch.Tensor,  # Tensor of shape batch_length with time indices
+        timestep: torch.Tensor,  # Tensor of shape (batch, 1) with continuous times in [0, 1]
         attention_mask: torch.Tensor,
         position_ids: Optional[torch.Tensor] = None,
         head_mask: Optional[torch.Tensor] = None,
@@ -237,14 +237,8 @@ class BertForDiffusionBase(BertPreTrainedModel):
 
         # If position IDs are not given, auto-generate them
         if position_ids is None:
-            # [1, seq_length]
-            position_ids = (
-                torch.arange(
-                    seq_length,
-                )
-                .expand(batch_size, -1)
-                .type_as(timestep)
-            )
+            # [batch, seq_length] integer positions; keep dtype long even if timestep is float
+            position_ids = torch.arange(seq_length, device=inputs.device).expand(batch_size, -1)
 
         # We can provide a self-attention mask of dimensions [batch_size, from_seq_length, to_seq_length]
         # ourselves in which case we just need to make it broadcastable to all heads. This code is taken
@@ -271,6 +265,8 @@ class BertForDiffusionBase(BertPreTrainedModel):
         # Pass through embeddings
         inputs_upscaled = self.embeddings(inputs_upscaled)
 
+        # Ensure continuous timestep stays float for Fourier features
+        timestep = timestep.float()
         # timestep is (batch, 1), squeeze to (batch,)
         # embedding gets to (batch, embed_dim) -> unsqueee to (batch, 1, dim)
         time_encoded = self.time_embed(timestep.squeeze(dim=-1)).unsqueeze(1)
