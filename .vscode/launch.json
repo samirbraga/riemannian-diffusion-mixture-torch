@@ -11,10 +11,10 @@
             "module": "simple_impl.old_train"
         },
         {
-            "name": "Debug MLP train foldingdiff",
+            "name": "Debug Same Dim train foldingdiff",
             "type": "debugpy",
             "request": "launch",
-            "module": "simple_impl.train_foldingdiff_mlp"
+            "module": "simple_impl.train_foldingdiff_samedim"
         },
         {
             "name": "Debug train foldingdiff",
