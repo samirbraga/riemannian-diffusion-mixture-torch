@@ -6,8 +6,9 @@ import glob
 import hashlib
 import logging
 from typing import *
-
+import torch.nn.functional as F
 import requests
+import torch
 
 import numpy as np
 
@@ -147,6 +148,27 @@ def md5_all_py_files(dirname: str) -> str:
             for chunk in iter(lambda: f.read(2**20), b""):
                 hash_md5.update(chunk)
     return hash_md5.hexdigest()
+
+def get_bert_attn_tensors(pad, coords):
+    bs = coords.shape[0]
+    seq_len = coords.shape[1]
+    attn_mask = torch.zeros(size=(bs, pad), device=coords.device)
+    l = min(pad, seq_len)
+    attn_mask[:, :l] = 1.0
+
+    if seq_len < pad:
+        coords = F.pad(
+            coords,
+            (0, 0, 0, pad - seq_len),
+            mode="constant",
+            value=0,
+        )
+    elif seq_len > pad:
+        coords = coords[: , :pad]
+
+    # Create position IDs
+    position_ids = torch.arange(start=0, end=pad, step=1, dtype=torch.long, device=coords.device)
+    return attn_mask, position_ids, coords
 
 
 if __name__ == "__main__":

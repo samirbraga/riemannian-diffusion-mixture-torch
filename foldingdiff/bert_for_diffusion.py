@@ -1,27 +1,7 @@
 import torch
 import torch.nn.functional as F
 from foldingdiff.bert_for_diffusion_base import BertForDiffusionBase
-
-def get_bert_attn_tensors(pad, coords):
-    bs = coords.shape[0]
-    seq_len = coords.shape[1]
-    attn_mask = torch.zeros(size=(bs, pad), device=coords.device)
-    l = min(pad, seq_len)
-    attn_mask[:, :l] = 1.0
-
-    if seq_len < pad:
-        coords = F.pad(
-            coords,
-            (0, 0, 0, pad - seq_len),
-            mode="constant",
-            value=0,
-        )
-    elif seq_len > pad:
-        coords = coords[: , :pad]
-
-    # Create position IDs
-    position_ids = torch.arange(start=0, end=pad, step=1, dtype=torch.long, device=coords.device)
-    return attn_mask, position_ids, coords
+from foldingdiff.utils import get_bert_attn_tensors
 
 
 class BertForDiffusion(BertForDiffusionBase):
