@@ -508,7 +508,7 @@ class CathCanonicalAnglesOnlyDataset(CathCanonicalAnglesDataset):
         assert return_dict["angles"].ndim == 2
         return_dict["angles"] = return_dict["angles"][:, self.feature_idx]
         angles = return_dict["angles"]
-        return_dict["cossin"] = torch.stack([torch.sin(angles), torch.cos(angles)], dim=-1).reshape(-1)
+        return_dict["cossin"] = torch.stack([torch.cos(angles), torch.sin(angles)], dim=-1).reshape(-1)
 
         assert torch.all(
             return_dict["angles"] >= -torch.pi
