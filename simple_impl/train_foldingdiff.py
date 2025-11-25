@@ -91,10 +91,10 @@ val_dataloader = DataLoader(
 angles_per_residue = len(train_dataset.feature_names["angles"])  # 6 right now
 cfg = BertConfig(
     max_position_embeddings=max_seq_len,
-    num_attention_heads=12,
-    hidden_size=384,
-    intermediate_size=768,
-    num_hidden_layers=12,
+    num_attention_heads=6,
+    hidden_size=192,
+    intermediate_size=384,
+    num_hidden_layers=6,
     position_embedding_type="relative_key",
     hidden_dropout_prob=0.1,
     attention_probs_dropout_prob=0.1,
@@ -129,7 +129,7 @@ mix = DiffusionMixture(
     pred_scale=1.0,
     prior_type="unif",
 )
-loss_fn = get_mix_loss_fn(mix, reduce_mean=True, num_steps=100, eps=0.001, weight_type="default")
+loss_fn = get_mix_loss_fn(mix, reduce_mean=True, num_steps=300, eps=0.001, weight_type="default")
 
 def mean_ignoring_outliers(data_tensor):
     inlier_mask = (data_tensor <= 10e8)
@@ -159,6 +159,8 @@ def train():
     scaler = GradScaler(enabled=device.type == "cuda")
     amp_ctx = autocast if scaler.is_enabled() else contextlib.nullcontext
 
+    min_lossb = 1e8
+
     for epoch in tbar:
         epoch_lossf = []
         epoch_lossb = []
@@ -171,7 +173,7 @@ def train():
             optimizerb.zero_grad()
 
             with amp_ctx(device_type=device.type):
-                loss, lossf, lossb = loss_fn(manifold, modelf, modelb, data)
+                loss, lossf, lossb = loss_fn(manifold, modelf, modelb, data, seq_len)
 
             if scaler.is_enabled():
                 scaler.scale(loss).backward()
@@ -205,12 +207,14 @@ def train():
                 print("Loss is nan")
                 return False
 
-        
-        torch.save(modelf.state_dict(), './forward_bert.pt')
-        torch.save(modelb.state_dict(), './backward_bert.pt')
-
         epoch_lossf = mean_ignoring_outliers(torch.tensor(epoch_lossf))
         epoch_lossb = mean_ignoring_outliers(torch.tensor(epoch_lossb))
+
+        if epoch_lossb < min_lossb:
+            min_lossb = epoch_lossb
+            torch.save(modelf.state_dict(), './forward_bert.pt')
+            torch.save(modelb.state_dict(), './backward_bert.pt')
+        
 
         run.log({"lossf": epoch_lossf, "lossb": epoch_lossb}, step=epoch)
         tbar.set_description(f"F: {epoch_lossf:.2f} | B: {epoch_lossb:.2f}")

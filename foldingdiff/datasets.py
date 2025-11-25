@@ -20,7 +20,6 @@ import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import Dataset
-import torch.nn.functional as F
 
 LOCAL_DATA_DIR = Path(
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
@@ -509,13 +508,6 @@ class CathCanonicalAnglesOnlyDataset(CathCanonicalAnglesDataset):
         assert return_dict["angles"].ndim == 2
         return_dict["angles"] = return_dict["angles"][:, self.feature_idx]
         angles = return_dict["angles"]
-                
-        seq_len = angles.shape[0]
-    
-        if seq_len < self.pad:
-            angles = F.pad(angles, (0, 0, 0, self.pad - seq_len), mode="constant", value=0)
-        elif seq_len > self.pad:
-            angles = angles[:self.pad, :]
     
         return_dict["cossin"] = torch.stack([torch.cos(angles), torch.sin(angles)], dim=-1).reshape(-1)
 
