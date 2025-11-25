@@ -1,10 +1,9 @@
 import random
-import contextlib
 import torch
 from typing import Iterator
 
+from accelerate import Accelerator
 from torch.utils.data import DataLoader, Sampler
-import wandb
 from tqdm import tqdm
 from transformers import BertConfig
 from transformers.optimization import get_linear_schedule_with_warmup
@@ -15,7 +14,6 @@ from losses import get_mix_loss_fn
 from schedule import LinearBetaSchedule
 from sde_lib import DiffusionMixture
 from dotenv import load_dotenv
-from torch.amp import autocast, GradScaler
 
 load_dotenv()
 
@@ -23,8 +21,6 @@ LEARNING_RATE = 5e-5
 
 max_seq_len = 128
 min_seq_len = 40
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-# device = torch.device("cpu")
 steps = 100
 grad_norm = 1.0
 lr_sched = True
@@ -102,8 +98,8 @@ cfg = BertConfig(
     _attn_implementation="eager"
 )
 
-modelf = BertForDiffusion(config=cfg, ft_names=train_dataset.feature_names["angles"]).to(device)
-modelb = BertForDiffusion(config=cfg, ft_names=train_dataset.feature_names["angles"]).to(device)
+modelf = BertForDiffusion(config=cfg, ft_names=train_dataset.feature_names["angles"])
+modelb = BertForDiffusion(config=cfg, ft_names=train_dataset.feature_names["angles"])
 
 optimizerf = torch.optim.AdamW(modelf.parameters(), lr=LEARNING_RATE, weight_decay=0)
 optimizerb = torch.optim.AdamW(modelb.parameters(), lr=LEARNING_RATE, weight_decay=0)
@@ -126,7 +122,7 @@ mix = DiffusionMixture(
     pred_scale=1.0,
     prior_type="unif",
 )
-loss_fn = get_mix_loss_fn(mix, reduce_mean=True, num_steps=20, eps=0.001, weight_type="default")
+loss_fn = get_mix_loss_fn(mix, reduce_mean=True, num_steps=50, eps=0.001, weight_type="default")
 
 def mean_ignoring_outliers(data_tensor):
     inlier_mask = (data_tensor <= 10e8)
@@ -139,78 +135,86 @@ def mean_ignoring_outliers(data_tensor):
 
 
 def train():
-    run = wandb.init(entity='rdem', project='Standard Metric - RiemannDiff')
+    accelerator = Accelerator(mixed_precision="fp16", split_batches=True, log_with="wandb")
+    accelerator.init_trackers(
+        project_name="Standard Metric - RiemannDiff",
+        init_kwargs={"wandb": {"entity": "rdem"}}
+    )
+
+    device = accelerator.device
+
+    accelerator.wait_for_everyone()
+
+    modelf_prep, modelb_prep, optimizerf_prep, optimizerb_prep, schedulerf_prep, schedulerb_prep, train_dl = accelerator.prepare(
+        modelf, modelb, optimizerf, optimizerb, schedulerf, schedulerb, train_dataloader
+    )
 
     tbar = tqdm(
         range(0, steps),
         total=steps,
         bar_format="{desc}{bar}{r_bar}",
         mininterval=1,
-    )
+    ) if accelerator.is_main_process else range(0, steps)
 
     torus_map = {
         i: Torus((i - 1) * angles_per_residue)
         for i in range(min_seq_len, max_seq_len + 1)
     }
 
-    scaler = GradScaler(enabled=device.type == "cuda")
-    amp_ctx = autocast if scaler.is_enabled() else contextlib.nullcontext
-
     min_lossb = 1e8
 
     for epoch in tbar:
         epoch_lossf = []
         epoch_lossb = []
-        for i, batch in enumerate(train_dataloader):
+        for i, batch in enumerate(train_dl):
             data = batch['cossin'].to(device)
             seq_len = batch['angles'].shape[1]
             manifold = torus_map[seq_len]
 
-            optimizerf.zero_grad()
-            optimizerb.zero_grad()
+            optimizerf_prep.zero_grad(set_to_none=True)
+            optimizerb_prep.zero_grad(set_to_none=True)
 
-            with amp_ctx(device_type=device.type):
-                loss, lossf, lossb = loss_fn(manifold, modelf, modelb, data)
+            with accelerator.autocast():
+                loss, lossf, lossb = loss_fn(manifold, modelf_prep, modelb_prep, data)
 
-            if scaler.is_enabled():
-                scaler.scale(loss).backward()
-                if grad_norm > 0:
-                    scaler.unscale_(optimizerf)
-                    scaler.unscale_(optimizerb)
-                    torch.nn.utils.clip_grad_norm_(modelf.parameters(), grad_norm)
-                    torch.nn.utils.clip_grad_norm_(modelb.parameters(), grad_norm)
-                scaler.step(optimizerf)
-                scaler.step(optimizerb)
-                scaler.update()
-            else:
-                loss.backward()
-                if grad_norm > 0:
-                    torch.nn.utils.clip_grad_norm_(modelf.parameters(), grad_norm)
-                    torch.nn.utils.clip_grad_norm_(modelb.parameters(), grad_norm)
-                optimizerf.step()
-                optimizerb.step()
+            accelerator.backward(loss)
+            if grad_norm > 0:
+                all_params = list(modelf_prep.parameters()) + list(modelb_prep.parameters())
+                accelerator.clip_grad_norm_(all_params, grad_norm)
+            optimizerf_prep.step()
+            optimizerb_prep.step()
 
             if lr_sched:
-                schedulerf.step()
-                schedulerb.step()
+                schedulerf_prep.step()
+                schedulerb_prep.step()
 
-            epoch_lossf.append(lossf.detach())
-            epoch_lossb.append(lossb.detach())
-            if torch.isnan(lossf + lossb).any():
-                print("Loss is nan")
+            lossf_reduced = accelerator.gather_for_metrics(lossf.detach()).mean()
+            lossb_reduced = accelerator.gather_for_metrics(lossb.detach()).mean()
+
+            if accelerator.is_main_process:
+                epoch_lossf.append(lossf_reduced.cpu())
+                epoch_lossb.append(lossb_reduced.cpu())
+
+            if torch.isnan(lossf_reduced + lossb_reduced).any():
+                accelerator.print("Loss is nan")
                 return False
 
-        epoch_lossf = mean_ignoring_outliers(torch.tensor(epoch_lossf))
-        epoch_lossb = mean_ignoring_outliers(torch.tensor(epoch_lossb))
+        if accelerator.is_main_process:
+            epoch_lossf_tensor = torch.stack(epoch_lossf) if len(epoch_lossf) > 0 else torch.tensor([])
+            epoch_lossb_tensor = torch.stack(epoch_lossb) if len(epoch_lossb) > 0 else torch.tensor([])
 
-        if epoch_lossb < min_lossb:
-            min_lossb = epoch_lossb
-            torch.save(modelf.state_dict(), './forward_bert.pt')
-            torch.save(modelb.state_dict(), './backward_bert.pt')
-        
+            epoch_lossf_mean = mean_ignoring_outliers(epoch_lossf_tensor)
+            epoch_lossb_mean = mean_ignoring_outliers(epoch_lossb_tensor)
 
-        run.log({"lossf": epoch_lossf, "lossb": epoch_lossb}, step=epoch)
-        tbar.set_description(f"F: {epoch_lossf:.2f} | B: {epoch_lossb:.2f}")
+            if epoch_lossb_mean < min_lossb:
+                min_lossb = epoch_lossb_mean
+                torch.save(accelerator.unwrap_model(modelf_prep).state_dict(), './forward_bert.pt')
+                torch.save(accelerator.unwrap_model(modelb_prep).state_dict(), './backward_bert.pt')
+
+            accelerator.log({"lossf": epoch_lossf_mean, "lossb": epoch_lossb_mean}, step=epoch)
+            tbar.set_description(f"F: {epoch_lossf_mean:.2f} | B: {epoch_lossb_mean:.2f}")
+    
+    accelerator.end_training()
     return True
 
 if __name__ == "__main__":
