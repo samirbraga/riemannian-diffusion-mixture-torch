@@ -152,7 +152,7 @@ def train():
     )
 
     torus_map = {
-        i: Torus(i * angles_per_residue)
+        i: Torus((i - 1) * angles_per_residue)
         for i in range(min_seq_len, max_seq_len + 1)
     }
 

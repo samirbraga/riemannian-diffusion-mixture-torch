@@ -507,7 +507,8 @@ class CathCanonicalAnglesOnlyDataset(CathCanonicalAnglesDataset):
         # Remove the distance feature
         assert return_dict["angles"].ndim == 2
         return_dict["angles"] = return_dict["angles"][:, self.feature_idx]
-        angles = return_dict["angles"]
+        n_feats = return_dict["angles"].shape[1]
+        angles = return_dict["angles"].reshape(-1)[1:-(n_feats - 1)]
     
         return_dict["cossin"] = torch.stack([torch.cos(angles), torch.sin(angles)], dim=-1).reshape(-1)
 

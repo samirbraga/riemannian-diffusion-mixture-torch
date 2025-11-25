@@ -7,11 +7,11 @@ from foldingdiff.utils import get_bert_attn_tensors
 class BertForDiffusion(BertForDiffusionBase):
     
     def forward(self, inputs: torch.Tensor, timestep: torch.Tensor, manifold, seq_len):
-        inputs_2d = inputs.view(inputs.shape[0], -1, 12)
-        attn_mask, position_ids, masked_inputs = get_bert_attn_tensors(128, inputs_2d)
+        inputs_reshaped = F.pad(inputs, (2, 10)).view(inputs.shape[0], -1, 12)
+        attn_mask, position_ids, masked_inputs = get_bert_attn_tensors(128, inputs_reshaped)
         outputs = super().forward(masked_inputs, timestep, attn_mask, position_ids)
-        outputs = outputs[:, :inputs_2d.shape[1], :]
-        outputs = outputs.reshape(inputs.shape[0], -1)
+        outputs = outputs[:, :inputs_reshaped.shape[1], :]
+        outputs = outputs.reshape(inputs.shape[0], -1)[:, 2:-10]
         drift = manifold.to_tangent(outputs, inputs)
         return drift
     
