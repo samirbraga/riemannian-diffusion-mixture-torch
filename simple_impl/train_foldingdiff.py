@@ -42,7 +42,7 @@ train_dataset = CathCanonicalAnglesOnlyDataset(split="train", **ds_args)
 val_dataset = CathCanonicalAnglesOnlyDataset(split="validation", **ds_args)
 
 class SameLenSampler(Sampler[list[int]]):
-    def __init__(self, dataset, batch_size: int, shuffle: bool = True):
+    def __init__(self, dataset, batch_size: int, shuffle_lengths: bool = True, shuffle_items: bool = True):
         indices_by_seq_lens = {}
         for i in range(len(dataset)):
             item = dataset[i]
@@ -52,7 +52,8 @@ class SameLenSampler(Sampler[list[int]]):
         self.indices_by_seq_lens = indices_by_seq_lens
         self.batch_size = batch_size
         self.dataset = dataset
-        self.shuffle = shuffle
+        self.shuffle_lengths = shuffle_lengths
+        self.shuffle_items = shuffle_items
 
     def __len__(self) -> int:
         total_batches = 0
@@ -64,26 +65,26 @@ class SameLenSampler(Sampler[list[int]]):
     
     def __iter__(self) -> Iterator[list[int]]:        
         batches = []
-        for seq_len in self.indices_by_seq_lens.keys():
+        for seq_len in sorted(self.indices_by_seq_lens.keys()):
             indices = torch.tensor(self.indices_by_seq_lens[seq_len])
-            perm = torch.randperm(len(indices)) if self.shuffle else torch.arange(len(indices))
+            perm = torch.randperm(len(indices)) if self.shuffle_items else torch.arange(len(indices))
             indices = indices[perm]
             num_batches = (len(indices) + self.batch_size - 1) // self.batch_size
             for batch in torch.chunk(indices, num_batches):
                 batches.append(batch.tolist())
-        if self.shuffle:
+        if self.shuffle_lengths:
             random.shuffle(batches)
         yield from batches
 
 train_dataloader = DataLoader(
     dataset=train_dataset,
-    batch_sampler=SameLenSampler(train_dataset, batch_size=32, shuffle=True),
+    batch_sampler=SameLenSampler(train_dataset, batch_size=32, shuffle_lengths=False, shuffle_items=True),
     num_workers=4,
     pin_memory=True,
 )
 val_dataloader = DataLoader(
     dataset=val_dataset,
-    batch_sampler=SameLenSampler(val_dataset, batch_size=32, shuffle=False),
+    batch_sampler=SameLenSampler(val_dataset, batch_size=32, shuffle_lengths=False, shuffle_items=False),
     num_workers=4,
     pin_memory=True,
 )
@@ -129,7 +130,7 @@ mix = DiffusionMixture(
     pred_scale=1.0,
     prior_type="unif",
 )
-loss_fn = get_mix_loss_fn(mix, reduce_mean=True, num_steps=300, eps=0.001, weight_type="default")
+loss_fn = get_mix_loss_fn(mix, reduce_mean=True, num_steps=50, eps=0.001, weight_type="default")
 
 def mean_ignoring_outliers(data_tensor):
     inlier_mask = (data_tensor <= 10e8)
@@ -173,7 +174,7 @@ def train():
             optimizerb.zero_grad()
 
             with amp_ctx(device_type=device.type):
-                loss, lossf, lossb = loss_fn(manifold, modelf, modelb, data, seq_len)
+                loss, lossf, lossb = loss_fn(manifold, modelf, modelb, data)
 
             if scaler.is_enabled():
                 scaler.scale(loss).backward()

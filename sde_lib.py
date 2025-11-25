@@ -92,8 +92,8 @@ class DiffusionMixture(Mixture):
         if not train:
             model.eval()
 
-        def drift_fn(manifold, x, t, seq_len):
-            drift = model(x, t.unsqueeze(-1), manifold, seq_len)
+        def drift_fn(manifold, x, t):
+            drift = model(x, t.unsqueeze(-1), manifold)
             if self.pred:
                 scale = self.drift_scale * self.time_scale(t) / self.pred_scale
                 drift = manifold.log(drift, x)
