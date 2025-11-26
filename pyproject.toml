@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = "~=3.12.0"
 dependencies = [
     "accelerate>=1.12.0",
+    "astropy>=7.2.0",
     "biopython>=1.85",
     "biotite>=1.5.0",
     "cartopy>=0.25.0",
@@ -18,6 +19,7 @@ dependencies = [
     "libigl>=2.6.1",
     "matplotlib>=3.10.7",
     "mlflow>=3.6.0",
+    "mpl-scatter-density>=0.8",
     "nglview>=3.1.4",
     "numpy>=2.3.3",
     "openmm>=8.4.0.post1",
