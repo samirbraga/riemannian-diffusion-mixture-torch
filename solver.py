@@ -144,7 +144,7 @@ def get_pc_sampler(manifold, sde, shape, N,
             dt = (timesteps[-1] - timesteps[0]) / N
 
             # Diffusion process 
-            tbar = tqdm(range(0, N), position=1, leave=False)
+            tbar = tqdm(range(0, N), position=1, leave=False, disable=True))
             for i in tbar:
                 vec_t = torch.ones((x.shape[0],), device=x.device) * timesteps[i]
                 x, x_mean = corrector.update_fn(x0, x, vec_t)
