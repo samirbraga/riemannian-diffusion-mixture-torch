@@ -1,221 +1,192 @@
-import gc
-import logging
-import os
-from timeit import default_timer as timer
-
 import torch
+from torch.utils.data import DataLoader
+from transformers import BertConfig
 from tqdm import tqdm
-from tqdm.contrib.logging import logging_redirect_tqdm
+import gc
 
-import data.protein
-from data.tensordataset import DataLoader
-from likelihood import Likelihood
-from losses import get_mix_loss_fn
-from models.networks import ScoreNetwork
+from dataset.full_sequence_dataset import CATHFullSequenceDataset
+from foldingdiff.bert_for_riemannian_diffusion import BertForRiemannianDiffusion
 from schedule import LinearBetaSchedule
 from sde_lib import DiffusionMixture
+from losses import get_mix_loss_fn
+
+# from likelihood import Likelihood
 from util.ema import ExponentialMovingAverage
-from util.loggers_pl import CSVLogger
 
-os.environ["GEOMSTATS_BACKEND"] = "pytorch"
-eval('setattr(torch.backends.cudnn, "deterministic", True)')
-eval('setattr(torch.backends.cudnn, "benchmark", False)')
-torch.set_default_dtype(torch.float32)
 
-log = logging.getLogger(__name__)
-logger = CSVLogger("logs", flush_logs_every_n_steps=1000)
+# This will stop the script and show you the exact operation that created a nan (it was a huge problem)
+torch.autograd.set_detect_anomaly(True)
 
-grad_norm = 1.0
-steps = 200000
-train_val = True
-val_freq = 1000
-seed = 0
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-eval_batch_size = 8192
-batch_size = 8192
-patience = 20000
-best_val = False
-lr_sched = False
-torus_dim = 7
-out_dim = torus_dim * 2
-hid_dim = 512
-num_layers = 6
 
-dataset = data.protein.RNA("./data/rna")
+LEARNING_RATE = 2e-5  # Was 2e-4 but it was giving nan (chatgpt told me was a good fix to change it)
+BATCH_SIZE = 2
+NUM_EPOCHS = 5000
+GRAD_CLIP_NORM = 1.0
+
+# Model and Data Configuration
+#ps: we may need to change that a lot, Samir 
+MAX_LEN = 128
+BERT_HIDDEN_SIZE = 256
+BERT_NUM_HEADS = 8
+BERT_NUM_LAYERS = 3
+
+
+LOG_FREQ_EPOCHS = 2
+SEED = 69
+
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
+
+#handling the data...
+print(f"Loading dataset with max_len = {MAX_LEN}...")
+dataset = CATHFullSequenceDataset("./data/angles/", max_len=MAX_LEN)
+manifold = dataset.manifold
+feature_dim = 2 * dataset.torus_dim
+
+
 N = len(dataset)
 N_val = N_test = N // 10
 N_train = N - N_val - N_test
-train_ds, eval_ds, test_ds = torch.utils.data.random_split(
+
+train_set, val_set, test_set = torch.utils.data.random_split(
     dataset,
     [N_train, N_val, N_test],
-    generator=torch.Generator().manual_seed(seed),
+    generator=torch.Generator().manual_seed(SEED),
 )
 
-train_ds, eval_ds, test_ds = (
-    DataLoader(train_ds, batch_dims=batch_size, shuffle=True),
-    DataLoader(eval_ds, batch_dims=eval_batch_size),
-    DataLoader(test_ds, batch_dims=eval_batch_size),
-)
+train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True, num_workers=2, pin_memory=True)
+val_loader = DataLoader(val_set, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
+test_loader = DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
 
-beta_schedule = LinearBetaSchedule(beta_0=0.2, beta_f=0.001, t0=0, tf=1.0)
-manifold = dataset.manifold
+print(f"Training with {N_train} examples, validating with {N_val} examples.")
+
+
+#  DIFFUSION SETUP HERE: 
+
+beta = LinearBetaSchedule(beta_0=0.2, beta_f=0.001, t0=0.0, tf=1.0)
+
 mix = DiffusionMixture(
     manifold,
-    beta_schedule,
-    mix_type="log",
+    beta,
+    mix_type='log',
     drift_scale=1.0,
     pred=False,
-    pred_scale=1.0,
-    prior_type="unif",
-)
-loss_fn = get_mix_loss_fn(mix, num_steps=15, eps=0.001, weight_type="default")
-likelihood = Likelihood(mix, rtol=1e-5, atol=1e-5)
-
-model_params = dict(
-    num_layers=num_layers,
-    hid_dim=hid_dim,
-    act="swish",
-    in_dim=out_dim + 1,
-    out_dim=out_dim,
-    manifold=manifold,
-)
-modelf = ScoreNetwork(**model_params).to(device)
-modelb = ScoreNetwork(**model_params).to(device)
-
-emaf = ExponentialMovingAverage(parameters=modelf.parameters(), decay=0.9999)
-emab = ExponentialMovingAverage(parameters=modelb.parameters(), decay=0.9999)
-
-optimizerf = torch.optim.Adam(
-    modelf.parameters(), lr=0.0002, weight_decay=0.0, betas=(0.9, 0.999), eps=1e-8
-)
-optimizerb = torch.optim.Adam(
-    modelb.parameters(), lr=0.0002, weight_decay=0.0, betas=(0.9, 0.999), eps=1e-8
+    prior_type='unif'
 )
 
-schedulerf = torch.optim.lr_scheduler.CosineAnnealingLR(optimizerf, T_max=steps)
-schedulerb = torch.optim.lr_scheduler.CosineAnnealingLR(optimizerb, T_max=steps)
+loss_fn = get_mix_loss_fn(mix, num_steps=20, loss_type='smooth_l1', beta=0.1)
 
 
-def evaluate(stage, step, **kwargs):
-    try:
-        dataset = eval_ds if stage == "val" else test_ds
+print("Initializing model...")
+cfg = BertConfig(
+    max_position_embeddings=MAX_LEN,
+    hidden_size=BERT_HIDDEN_SIZE,
+    num_attention_heads=BERT_NUM_HEADS,
+    num_hidden_layers=BERT_NUM_LAYERS,
+    intermediate_size=4 * BERT_HIDDEN_SIZE,
+    use_cache=False,
+    _attn_implementation="eager"
+)
 
-        emaf.copy_to(modelf.parameters())
-        emab.copy_to(modelb.parameters())
+modelf = BertForRiemannianDiffusion(cfg, manifold, feature_dim).to(device)
+modelb = BertForRiemannianDiffusion(cfg, manifold, feature_dim).to(device)
 
-        likelihood_fn = likelihood.get_log_prob(modelf, modelb)
+optf = torch.optim.Adam(modelf.parameters(), lr=LEARNING_RATE)
+optb = torch.optim.Adam(modelb.parameters(), lr=LEARNING_RATE)
 
-        logp, nfe, N = 0.0, 0.0, 0
-        tot = 0
-        if hasattr(dataset, "__len__"):
-            for batch in dataset:
-                if len(batch) > 0:
-                    logp_step, nfe_step = likelihood_fn(batch.to(device))
-                    logp += logp_step.sum()
-                    nfe += nfe_step
-                    N += logp_step.shape[0]
-            nfe /= len(dataset)
-        else:
-            dataset.batch_dims = eval_batch_size
-            num_rounds = round(20_000 / eval_batch_size)
-            for i in range(num_rounds):
-                batch = next(dataset)
-                logp_step, nfe_step = likelihood_fn(batch.to(device))
-                logp += logp_step.sum()
-                nfe += nfe_step
-                N += logp_step.shape[0]
-                tot += logp_step.shape[0]
-            dataset.batch_dims = batch_size
-            nfe /= num_rounds
-
-        logp /= N
-
-        logger.log_metrics({f"{stage}/logp": logp}, step)
-        logger.log_metrics({f"{stage}/nfe": nfe}, step)
-
-        with logging_redirect_tqdm():
-            if stage == "test" and best_val:
-                log.info(
-                    f">>> [Epoch {step:06d}] | Val logp={kwargs['best_logp']:.3f} | "
-                    f"Test logp={logp:.3f} | nfe: {nfe:.1f}"
-                )
-            else:
-                log.info(
-                    f"[Epoch {step:06d}] {stage} logp: {logp:.3f} | nfe: {nfe:.1f}"
-                )
-        logger.save()
-
-        return logp
-    except:
-        return -10000
+emaF = ExponentialMovingAverage(modelf.parameters(), decay=0.9999)
+emaB = ExponentialMovingAverage(modelb.parameters(), decay=0.9999)
 
 
-def train(step=0):
-    tbar = tqdm(
-        range(step, steps),
-        total=steps - step,
-        bar_format="{desc}{bar}{r_bar}",
-        mininterval=1,
+
+@torch.no_grad()
+def evaluate_loss(modelf, modelb, val_loader, loss_fn):
+    """Calculates the average loss on the validation set."""
+    modelf.eval()
+    modelb.eval()
+    
+    total_val_loss = 0.0
+    for batch in val_loader:
+        batch = {k: v.to(device) for k, v in batch.items()}
+        data_tensor = batch['x']
+        
+        #  FIX 2: add sanity check for nan so it doesn't return a nan scored bathc like before
+        if torch.any(torch.isnan(data_tensor)):
+            print("NaN found in validation data batch!")
+            continue
+
+        loss, _, _ = loss_fn(modelf, modelb, data_tensor)
+        if not torch.isnan(loss): # Only add valid loss values
+            total_val_loss += loss.item()
+        
+    return total_val_loss / len(val_loader)
+
+# traininig loop here: 
+def train():
+    """Main training loop."""
+    print("Starting training... LET'S ROCK! ")
+    for epoch in range(1, NUM_EPOCHS + 1):
+        modelf.train()
+        modelb.train()
+        
+        total_train_loss = 0.0
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{NUM_EPOCHS}", leave=False)
+        
+        for batch in pbar:
+            batch = {k: v.to(device) for k, v in batch.items()}
+            data_tensor = batch['x']
+            
+            # same fix for nan data as before
+            if torch.any(torch.isnan(data_tensor)):
+                print(f"NaN found in training data batch! Skipping.")
+                continue
+
+            optf.zero_grad()
+            optb.zero_grad()
+            
+            loss, lf, lb = loss_fn(modelf, modelb, data_tensor)
+            
+            # Check for nan before backprop.
+            if torch.isnan(loss):
+                print(f"NaN loss detected at epoch {epoch}. Skipping backward pass.")
+                #  stop the process for this batch but continue the training loop to see if the model recovers.
+                continue
+
+            loss.backward()
+
+            if GRAD_CLIP_NORM > 0:
+                torch.nn.utils.clip_grad_norm_(modelf.parameters(), GRAD_CLIP_NORM)
+                torch.nn.utils.clip_grad_norm_(modelb.parameters(), GRAD_CLIP_NORM)
+
+            optf.step()
+            optb.step()
+
+            emaF.update(modelf.parameters())
+            emaB.update(modelb.parameters())
+
+            total_train_loss += loss.item()
+            pbar.set_postfix(batch_loss=loss.item())
+        
+        
+        avg_train_loss = total_train_loss / len(train_loader)
+        
+        if epoch % LOG_FREQ_EPOCHS == 0:
+            emaF.copy_to(modelf.parameters())
+            emaB.copy_to(modelb.parameters())
+            
+            avg_val_loss = evaluate_loss(modelf, modelb, val_loader, loss_fn)
+            
+            print(f"Epoch {epoch: >4}/{NUM_EPOCHS} | Avg Train Loss: {avg_train_loss:.4f} | Avg Val Loss: {avg_val_loss:.4f}")
+
+    print("Training finished.")
+    print("Saving final model checkpoint to 'trained_diffusion.pkl'...")
+    emaF.copy_to(modelf.parameters())
+    emaB.copy_to(modelb.parameters())
+    torch.save(
+        {"f": modelf.state_dict(), "b": modelb.state_dict()},
+        "trained_diffusion.pkl"
     )
-    train_time = timer()
-
-    total_train_time = 0
-    for _ in tbar:
-        batch = next(train_ds)
-
-        optimizerf.zero_grad()
-        optimizerb.zero_grad()
-
-        loss, lossf, lossb = loss_fn(modelf, modelb, batch.to(device))
-        loss.backward()
-
-        if grad_norm > 0:
-            torch.nn.utils.clip_grad_norm_(modelf.parameters(), grad_norm)
-            torch.nn.utils.clip_grad_norm_(modelb.parameters(), grad_norm)
-
-        optimizerf.step()
-        optimizerb.step()
-
-        if lr_sched:
-            schedulerf.step()
-            schedulerb.step()
-
-        # -------- EMA update --------
-        emaf.update(modelf.parameters())
-        emab.update(modelb.parameters())
-
-        step += 1
-
-        if torch.isnan(lossf + lossb).any():
-            log.warning("Loss is nan")
-            return False
-
-        if step % 10 == 0:
-            logger.log_metrics({"train/loss_f": lossf.item()}, step)
-            logger.log_metrics({"train/loss_b": lossb.item()}, step)
-            tbar.set_description(f"F: {lossf:.2f} | B: {lossb:.2f}")
-
-        if step % val_freq == 0:
-            logger.log_metrics(
-                {"train/time_per_it": (timer() - train_time) / val_freq}, step
-            )
-            total_train_time += timer() - train_time
-            eval_time = timer()
-
-            if train_val:
-                logp = evaluate("val", step)
-                logger.log_metrics({"val/time_per_it": (timer() - eval_time)}, step)
-                logger.log_metrics({"logp": logp}, step)
-
-                gc.collect()
-
-            train_time = timer()
-
-    logger.log_metrics({"train/total_time": total_train_time}, step)
-    return True
-
 
 if __name__ == "__main__":
-    success = train(step=0)
-    logger.save()
-    logger.finalize("success" if success else "failure")
+    train()

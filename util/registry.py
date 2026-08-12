@@ -8,7 +8,6 @@ def get_item(category: str, item: str) -> object:
 
     return _category[item]
 
-
 def get_category(category: str) -> dict:
     if not category in _REGISTRY:
         raise ValueError(f"Category {category} not in registry")

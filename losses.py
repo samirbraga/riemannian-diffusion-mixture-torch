@@ -4,7 +4,8 @@ from sde_lib import DiffusionMixture
 from solver import get_twoway_sampler
 
 def get_mix_loss_fn(mix: DiffusionMixture, reduce_mean=False, eps=1e-5, num_steps=10, 
-                    weight_type='default', sampler_type='twoway'):
+                    weight_type='default', sampler_type='twoway', loss_type='smooth_l1', beta=0.1):
+
     reduce_op = torch.mean if reduce_mean else \
                 lambda *args, **kwargs: torch.sum(*args, **kwargs)
     sampler = get_twoway_sampler(mix, num_steps)
@@ -21,38 +22,65 @@ def get_mix_loss_fn(mix: DiffusionMixture, reduce_mean=False, eps=1e-5, num_step
             raise NotImplementedError(f'{weight_type} not implemented.')
         return weight
 
+    # HELPER FUNCTION FOR MANIFOLD SMOOTH L1 LOSS
+    def manifold_smooth_l1_loss(v, x, beta: float):
+        """
+        Calculates the smooth L1 loss for a tangent vector v at base point x.
+        """
+        norm_sq = mix.manifold.metric.squared_norm(v, x)
+        norm = torch.sqrt(norm_sq + 1e-8)
+
+        smooth_l1 = torch.where(
+            norm < beta,
+            0.5 * norm_sq / beta,
+            norm - 0.5 * beta
+        )
+        return smooth_l1
+
     def loss_fn(modelf, modelb, x):
         shape = x.shape
-        # Forward (prior->data) drift
         predf_fn = mix.get_drift_fn(modelf, train=True)
-        # Backward (data->prior) drift
         predb_fn = mix.get_drift_fn(modelb, train=True)
 
         if 'importance' in weight_type:
             t = mix.sample_importance_weighted_time((x.shape[0],), eps, x.device)
         else:
-            t = torch.rand(shape[0], device=x.device) * (mix.tf - 2*eps) + eps
-        x0 = mix.prior.sample(shape, x.device).reshape(shape[0], -1)
+            t = torch.rand(x.shape[0], device=x.device) * (mix.tf - eps) + eps
+
+        x0 = mix.prior.sample(shape, x.device)
 
         if sampler_type == 'twoway':
             xt = sampler(x0, x, t)
         else:
             raise NotImplementedError(f'Sampler type: {sampler_type} not implemented.')
 
-        # weight
         weight = weight_fn(t)
 
-        # Forward model loss
-        lossesf = predf_fn(xt, t) - mix.bridge(x).drift(xt, t)
-        lossesf = 0.5 * mix.manifold.metric.squared_norm(lossesf, xt)
+        # FORWARD MODEL LOSS
+        lossesf_vec = predf_fn(xt, t) - mix.bridge(x).drift(xt, t)
+        
+        if loss_type == 'smooth_l1':
+            lossesf = manifold_smooth_l1_loss(lossesf_vec, xt, beta)
+        elif loss_type == 'l2':
+            lossesf = 0.5 * mix.manifold.metric.squared_norm(lossesf_vec, xt)
+        else:
+            raise ValueError(f"Unknown loss type: {loss_type}")
+            
         lossesf = weight * lossesf
-        lossesf = reduce_op(lossesf.reshape(lossesf.shape[0], -1), dim=-1)
+        lossesf = reduce_op(lossesf, dim=-1)
 
-        # Backward model loss
-        lossesb = predb_fn(xt, mix.tf-t) - mix.rev().bridge(x0).drift(xt, mix.tf-t)
-        lossesb = 0.5 * mix.manifold.metric.squared_norm(lossesb, xt)
+        # BACKWARD MODEL LOSS
+        lossesb_vec = predb_fn(xt, mix.tf-t) - mix.rev().bridge(x0).drift(xt, mix.tf-t)
+        
+        if loss_type == 'smooth_l1':
+            lossesb = manifold_smooth_l1_loss(lossesb_vec, xt, beta)
+        elif loss_type == 'l2':
+            lossesb = 0.5 * mix.manifold.metric.squared_norm(lossesb_vec, xt)
+        else:
+            raise ValueError(f"Unknown loss type: {loss_type}")
+
         lossesb = weight * lossesb
-        lossesb = reduce_op(lossesb.reshape(lossesb.shape[0], -1), dim=-1)
+        lossesb = reduce_op(lossesb, dim=-1)
 
         lossf, lossb = torch.mean(lossesf), torch.mean(lossesb)
 

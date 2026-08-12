@@ -1,100 +1,125 @@
-# Riemannian Diffusion Mixture
 
-This repo contains a PyTorch implementation for the paper [Generative Modeling on Manifolds Through Mixture of Riemannian Diffusion Processes](https://arxiv.org/abs/2310.07216). 
+# Modelo de Difusão Riemanniana para Estruturas de Proteínas
 
-We provide official code repo for JAX implementation in [riemannian-diffusion-mixture](https://github.com/harryjo97/riemannian-diffusion-mixture).
+ *O que faz?* 
+ 
+ Adapta o código do riemannian diffusion para os dados cujo modelo foldingdiff foi treinado.
 
-## Why Riemannian Diffusion Mixture?
+*fonte de dados*: CATH Dataset
 
-- Simple design of the generative process as a mixture of Riemannian bridge processes, which does not require heat kernel estimation as previous denoising approach.
-- Geometrical interpretation for the mixture process as the weighted mean of tangent directions on manifolds
-- Scales to higher dimensions with significantly faster training compared to previous diffusion models.
+# Info. pertinente: 
+O modelo foi treinado utilizando o dataset CATH (Class, Architecture, Topology, Homologous superfamily), uma classificação hierárquica de domínios de estruturas de proteínas.
+
+Dataset Específico: cath-dataset-nonredundant-S40
+
+Download: O dataset pode ser baixado do seguinte link:
+
+cath-dataset-nonredundant-S40.pdb.tgz
+
+# 🚀 Pré-requisitos e Setup
+
+Para replicar o treinamento, siga os passos abaixo:
+
+1. **Instalação de Dependências**
+
+Antes de executar os scripts, é crucial instalar todas as bibliotecas Python necessárias. Elas estão listadas no arquivo requirements.txt.
 
 
-## Dependencies
-
-Create an environment with Python 3.9.0, and Pytorch 2.0.0. Install requirements with the following command:
-```
 pip install -r requirements.txt
-conda install -c conda-forge cartopy python-kaleido
-```
 
-## Manifolds
+2. **Baixe e Descompacte os Dados**
 
-Following manifolds are supported in this repo:
-- Euclidean
-- Hypersphere
-- Torus
-- Hyperboloid
-- Triangular mesh
-- Special orthogonal group
+Faça o download do arquivo no link acima e descompacte-o.
 
-To implement new manifolds, add python files that define the geometry of the manifold in `/geomstats/geometry`.
+3. **Organize os Arquivos PDB**
 
-Please refer to [geomstats/geometry](https://github.com/geomstats/geomstats/tree/main/geomstats/geometry) for examples.
+Crie um diretório chamado dompdb na raiz do projeto e mova todos os arquivos .pdb descompactados para dentro dele.
 
-## Running Experiments
+4. **Execute o Pré-processamento**
 
-This repo supports experiments on the following datasets:
-- Protein datasets: `General`, `Glycine`, `Proline`, and `Pre-Pro`, and `RNA`.
-- High-dimensional tori
+Rode o novo script de pré-processamento para converter os arquivos PDB em um formato de ângulos de torção.
 
-Please refer to [riemannian-diffusion-mixture](https://github.com/harryjo97/riemannian-diffusion-mixture) for running expreiments on `earth and climate science datasets`, `triangular mesh datasets`, and `hyperboloid datasets`.
+*python preprocess_cath.py*
 
-### 1. Dataset preparations
+Este script irá ler todos os arquivos em dompdb, extrair os ângulos, criar segmentos de tamanho fixo (WINDOW_SIZE=50) e salvar o resultado em ./data/cath_s40_L64.tsv.
 
-For experiment on Protein datasets, create .tsv file in `/data/top500` directory with the following command:
-```sh
-cd data/top500
-bash batch_download.sh -f list_file.txt -p
-python get_torsion_angle.py
-```
+# 🧠 Inicie o Treinamento
 
-For experiment on RNA dataset, create .tsv file in `/data/rna` directory with the following command:
-```sh
-cd data/rna
-bash batch_download.sh -f list_file.txt -p
-python get_torsion_angles.py
-```
+Com os dados pré-processados, inicie o treinamento.
 
-### 2. Configurations
 
-The configurations are provided in the `config/` directory in `YAML` format. 
+*python simple_impl/train.py*
 
-### 3. Experiments
+# 🔧 Resumo das Modificações nos Arquivos
 
-```
-CUDA_VISIBLE_DEVICES=0 python main.py -m \
-    experiment=<exp> \
-    seed=0,1,2,3,4 \
-    n_jobs=5 \
-```
-where ```<exp>``` is one of the experiments in `config/experiment/*.yaml`
+1. **preprocess_cath.py** (Novo Arquivo)
 
-For example,
-```
-CUDA_VISIBLE_DEVICES=0 python main.py -m \
-    experiment=rna \
-    seed=0,1,2,3,4 \
-    n_jobs=5 \
-```
+💡 Motivação: O projeto original não possuía uma maneira de processar os dados brutos de proteínas (.pdb). Era necessário um pipeline para extrair as informações relevantes (ângulos phi/psi) e formatá-las de uma maneira que o modelo pudesse consumir.
 
-To run experiments on high-dimensional tori, use `experiment=htori` with `n=$DIM` where `$DIM` denotes the dimesion of the tori.
+⚙️ *Funcionamento*: O script utiliza a biblioteca Bio.PDB para:
 
-## Citation
+Iterar sobre todos os arquivos .pdb no diretório dompdb.
 
-If you found the provided code with our paper useful in your work, we kindly request that you cite our work.
+Extrair os ângulos de torção phi (φ) e psi (ψ) de cada polipeptídeo.
 
-```BibTex
-@inproceedings{jo2024riemannian,
-  author    = {Jaehyeong Jo and
-               Sung Ju Hwang},
-  title     = {Generative Modeling on Manifolds Through Mixture of Riemannian Diffusion Processes},
-  booktitle = {International Conference on Machine Learning},
-  year      = {2024},
-}
-```
+Aplicar uma lógica de janela deslizante para criar segmentos de ângulos de tamanho fixo (WINDOW_SIZE), garantindo que todas as entradas do modelo tenham a mesma dimensão.
 
-## Acknowledgments
+Salvar todos os segmentos em um único arquivo .tsv para carregamento eficiente durante o treinamento. Pense que é uma lógica análoga ao que se faz numa série temporal.
 
-Our code builds upon [geomstats](https://github.com/geomstats/geomstats). We thank [Riemannian Score-Based Generative Modelling](https://github.com/oxcsml/riemannian-score-sde?tab=readme-ov-file) and [Riemmanian Flow Matching](https://github.com/facebookresearch/riemannian-fm) for their works.
+2. **protein.py** (Modificado)
+
+💡 *Motivação*: Para carregar os dados pré-processados pelo preprocess_cath.py, foi necessária uma classe Dataset personalizada do PyTorch.
+
+✅ *Diferenças*:
+
+A nova classe CATHDataset é projetada especificamente para ler o arquivo cath_s40_L64.tsv.
+
+Ela define a geometria (manifold) do problema como um Torus, cuja dimensão é dinamicamente calculada com base no WINDOW_SIZE (dim = window_size * 2).
+
+No método __getitem__, ela converte os ângulos (em radianos) para suas coordenadas no círculo trigonométrico (cosseno e seno), que é a representação que o modelo utiliza.
+
+3. **train.py** (Modificado)
+
+💡 Motivação: O script original era configurado para treinar com um dataset de RNA. Foi preciso adaptá-lo para carregar e treinar com os dados de proteínas do CATH.
+
+✅ *Diferenças*:
+
+Carregamento de Dados: Em vez de data.protein.RNA(...), o script agora instancia a nova CATHDataset:
+
+
+dataset = CATHDataset(tsv_path="./data/cath_s40_L64.tsv", window_size=window_size)
+
+Definição do Manifold: A geometria e a dimensão do toro não são mais fixas, mas sim obtidas diretamente do objeto dataset, tornando o código mais flexível.
+
+Salvamento do Modelo: Ao final do treinamento, um código foi adicionado para salvar os pesos dos modelos treinados (modelf e modelb) em um arquivo trained_protein_model.pkl.
+
+4. **losses.py** (Correção de Bug)
+
+🐛 *Motivação*: A versão original gerava um AttributeError: 'numpy.ndarray' object has no attribute 'to'. A variável t (tempo de difusão) estava sendo criada como um array NumPy em vez de um tensor PyTorch.
+
+✅ *Correção*: A linha que gera o tempo de amostragem t foi corrigida para garantir que t seja sempre um tensor PyTorch, permitindo operações de dispositivo (CPU/GPU) sem erros de tipo.
+
+
+*Garante que 't' é um tensor PyTorch*
+t = torch.rand(x.shape[0], device=x.device) * (mix.tf - eps) + eps
+5. **solver.py** (Correção de Bug)
+
+🐛 *Motivação*: Mesmo após corrigir losses.py, o AttributeError persistia. A causa raiz foi encontrada aqui: a função sampler recebia um tensor t mas o convertia internamente para um array NumPy ao usar np.linspace, recriando o problema.
+
+✅ *Correção*: O array gerado pelo np.linspace é agora explicitamente convertido para um tensor PyTorch antes de tentar movê-lo para o dispositivo, resolvendo o bug de forma definitiva.
+
+Original:
+
+timesteps = np.linspace(mix.t0, ts.detach().cpu(), N)
+timesteps = timesteps.to(x.device) # ERRO AQUI
+
+Modificado:
+
+
+timesteps_np = np.linspace(mix.t0, ts.detach().cpu().numpy(), N)
+timesteps = torch.from_numpy(timesteps_np).float().to(x.device)
+
+
+
+# Novo treinamento com UI do MLFLOW:
+1. **simple_impl/mlflow_train.py** (Novo Arquivo)

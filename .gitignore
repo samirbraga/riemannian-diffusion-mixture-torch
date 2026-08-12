@@ -1,4 +1,4 @@
-#
+# 
 *.pyc
 *.npz
 *.pkl
@@ -143,6 +143,18 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
 .idea
 
+
 dompdb/
+
+data/dompdb
+data/angles
+
+source_code.tar.gz
+
+
+
+
+.vscode-server

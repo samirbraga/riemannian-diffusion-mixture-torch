@@ -12,3 +12,5 @@ plotly
 cartopy
 libigl
 pyvista
+mlflow
+transformers 
